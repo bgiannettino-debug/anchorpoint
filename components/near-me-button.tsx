@@ -32,7 +32,7 @@ export function NearMeButton() {
         if (result.state === "denied") {
           setStatus("error");
           setError(
-            "Location is blocked for this site. Allow it in your browser settings, or use search above.",
+            "Location permission is blocked for this site. To use this, allow location in your browser's site settings (Safari: Settings → Websites → Location).",
           );
         }
       })
@@ -76,7 +76,10 @@ export function NearMeButton() {
         setStatus("error");
         setError(
           err.code === err.PERMISSION_DENIED
-            ? "Location permission was denied. Click again to retry, or reload the page if no prompt appears."
+            ? // Most browsers (Safari especially) cache the denial and
+              // won't re-prompt on this site until the user clears it.
+              // Reload won't help — point straight at settings.
+              "Location permission was denied. To try again, allow location in your browser's site settings (Safari: Settings → Websites → Location)."
             : "Couldn't get your location. Click again to retry, or reload the page if no prompt appears.",
         );
       },
