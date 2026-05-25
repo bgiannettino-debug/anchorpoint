@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { formatGradeRange } from "@/lib/grades";
-import { formatDistanceKm } from "@/lib/geo";
+import { formatDistanceMiles } from "@/lib/geo";
 
 type GradeCount = {
   label: string;
@@ -17,10 +17,10 @@ export type AreaCardData = {
 
 export function AreaCard({
   area,
-  distanceKm,
+  distanceMiles,
 }: {
   area: AreaCardData;
-  distanceKm?: number;
+  distanceMiles?: number;
 }) {
   const labels = area.aggregate?.byGrade?.map((g) => g.label) ?? [];
   const range = formatGradeRange(labels);
@@ -39,9 +39,9 @@ export function AreaCard({
         <h3 className="text-xl font-semibold text-stone-900 dark:text-stone-100">
           {area.area_name}
         </h3>
-        {distanceKm != null && (
+        {distanceMiles != null && (
           <span className="text-sm text-stone-600 dark:text-stone-300 font-mono shrink-0">
-            {formatDistanceKm(distanceKm)}
+            {formatDistanceMiles(distanceMiles)}
           </span>
         )}
       </div>

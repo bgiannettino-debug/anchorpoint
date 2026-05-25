@@ -1,12 +1,12 @@
 type LatLng = { lat: number; lng: number };
 
 /**
- * Great-circle distance in kilometers between two lat/lng points.
+ * Great-circle distance in miles between two lat/lng points.
  * Standard haversine — accurate to ~0.5% over typical climbing-area
- * distances (under a few hundred km).
+ * distances (under a few hundred miles).
  */
-export function haversineKm(a: LatLng, b: LatLng): number {
-  const R = 6371;
+export function haversineMiles(a: LatLng, b: LatLng): number {
+  const R = 3958.8;
   const toRad = (d: number) => (d * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);
@@ -19,12 +19,13 @@ export function haversineKm(a: LatLng, b: LatLng): number {
 }
 
 /**
- * Human-readable distance — sub-kilometer in meters, single-decimal km
- * up to ten, otherwise rounded km. Matches how guidebooks usually phrase
- * "20 m" / "3.4 km" / "47 km".
+ * Human-readable distance — sub-mile in feet (to the nearest 10 ft so
+ * the result is scannable), single-decimal miles up to ten, otherwise
+ * rounded miles. Matches how guidebooks usually phrase "300 ft" /
+ * "3.4 mi" / "47 mi".
  */
-export function formatDistanceKm(km: number): string {
-  if (km < 1) return `${Math.round(km * 1000)} m`;
-  if (km < 10) return `${km.toFixed(1)} km`;
-  return `${Math.round(km)} km`;
+export function formatDistanceMiles(miles: number): string {
+  if (miles < 1) return `${Math.round(miles * 528) * 10} ft`;
+  if (miles < 10) return `${miles.toFixed(1)} mi`;
+  return `${Math.round(miles)} mi`;
 }

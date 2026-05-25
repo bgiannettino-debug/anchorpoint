@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { NearMeButton } from "@/components/near-me-button";
-import { haversineKm } from "@/lib/geo";
+import { haversineMiles } from "@/lib/geo";
 import { gql } from "@apollo/client";
 
 type GetAreasResponse = {
@@ -19,10 +19,13 @@ type GetCragsNearResponse = {
   cragsNear: (CragsNearGroup | null)[] | null;
 };
 
-// 50 km covers a generous driving range for "after-work crag near home"
-// while keeping the result set manageable. Crags within this radius are
-// sorted by true haversine distance from the query point.
-const NEAR_RADIUS_METERS = 50_000;
+// 50 miles covers a generous driving range for "after-work crag near
+// home" while keeping the result set manageable. Crags within this
+// radius are sorted by true haversine distance from the query point.
+// The API wants meters, so derive that from the displayed miles value
+// to keep the two in sync.
+const NEAR_RADIUS_MILES = 50;
+const NEAR_RADIUS_METERS = Math.round(NEAR_RADIUS_MILES * 1609.344);
 const NEAR_RESULT_LIMIT = 20;
 
 // Use the area's `aggregate.byGrade` and `totalClimbs` so the counts/grade
@@ -83,7 +86,7 @@ const GET_CRAGS_NEAR = gql`
   }
 `;
 
-type NearCrag = AreaCardData & { distanceKm: number };
+type NearCrag = AreaCardData & { distanceMiles: number };
 
 export default async function Home({
   searchParams,
@@ -125,14 +128,14 @@ export default async function Home({
           if (cLat == null || cLng == null) continue;
           all.push({
             ...c,
-            distanceKm: haversineKm(
+            distanceMiles: haversineMiles(
               { lat: userLat, lng: userLng },
               { lat: cLat, lng: cLng },
             ),
           });
         }
       }
-      all.sort((a, b) => a.distanceKm - b.distanceKm);
+      all.sort((a, b) => a.distanceMiles - b.distanceMiles);
       nearResults = all.slice(0, NEAR_RESULT_LIMIT);
     } catch (err) {
       console.error("OpenBeta cragsNear query failed:", err);
@@ -272,7 +275,8 @@ function NearResults({ results }: { results: NearCrag[] }) {
   if (results.length === 0) {
     return (
       <p className="text-stone-500 dark:text-stone-400">
-        No climbing areas within 50 km of you. Try searching by name.
+        No climbing areas within {NEAR_RADIUS_MILES} miles of you. Try
+        searching by name.
       </p>
     );
   }
@@ -284,7 +288,7 @@ function NearResults({ results }: { results: NearCrag[] }) {
       </h2>
       <div className="space-y-4">
         {results.map((c) => (
-          <AreaCard key={c.uuid} area={c} distanceKm={c.distanceKm} />
+          <AreaCard key={c.uuid} area={c} distanceMiles={c.distanceMiles} />
         ))}
       </div>
     </>
