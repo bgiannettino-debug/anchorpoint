@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Status = "idle" | "locating" | "error";
@@ -9,6 +9,38 @@ export function NearMeButton() {
   const router = useRouter();
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
+  const safetyTimer = useRef<number | null>(null);
+
+  // Clear any pending safety timer on unmount so we don't setState on
+  // an unmounted component if the user navigates away mid-request.
+  useEffect(
+    () => () => {
+      if (safetyTimer.current != null) clearTimeout(safetyTimer.current);
+    },
+    [],
+  );
+
+  // If the browser remembers a previous denial, the next prompt is often
+  // suppressed silently (Safari especially). Check the Permissions API
+  // up front so we render a useful message instead of leaving the user
+  // staring at an unresponsive button.
+  useEffect(() => {
+    if (!navigator.permissions?.query) return;
+    navigator.permissions
+      .query({ name: "geolocation" })
+      .then((result) => {
+        if (result.state === "denied") {
+          setStatus("error");
+          setError(
+            "Location is blocked for this site. Allow it in your browser settings, or use search above.",
+          );
+        }
+      })
+      .catch(() => {
+        // Some browsers reject this query — fall through and let the
+        // click handler attempt the prompt directly.
+      });
+  }, []);
 
   function handleClick() {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -18,21 +50,34 @@ export function NearMeButton() {
     }
     setStatus("locating");
     setError(null);
+
+    // Safari sometimes never fires the error callback when the user
+    // denies the prompt (see WebKit bug history). Without this fallback
+    // the button stays disabled forever. 12 s sits just beyond the
+    // getCurrentPosition timeout so the native error wins when it fires.
+    if (safetyTimer.current != null) clearTimeout(safetyTimer.current);
+    safetyTimer.current = window.setTimeout(() => {
+      setStatus("error");
+      setError(
+        "We didn't hear back from your browser. Make sure location is allowed for this site, or use search above.",
+      );
+    }, 12000);
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        if (safetyTimer.current != null) clearTimeout(safetyTimer.current);
         const { latitude, longitude } = pos.coords;
         router.push(
           `/?lat=${latitude.toFixed(5)}&lng=${longitude.toFixed(5)}`,
         );
       },
       (err) => {
+        if (safetyTimer.current != null) clearTimeout(safetyTimer.current);
         setStatus("error");
-        // PERMISSION_DENIED is the common one and deserves a tailored
-        // message; the others are rare enough to share generic phrasing.
         setError(
           err.code === err.PERMISSION_DENIED
-            ? "Location permission was denied. Use search instead."
-            : "Couldn't get your location. Try again or use search.",
+            ? "Location permission was denied. Use search above instead."
+            : "Couldn't get your location. Try again or use search above.",
         );
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
