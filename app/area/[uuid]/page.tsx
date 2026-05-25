@@ -8,6 +8,22 @@ import { gradeToNumber } from "@/lib/grades";
 type Climb = {
   id: string;
   name: string;
+  fa?: string | null;
+  // OpenBeta uses a "SafetyEnum": UNSPECIFIED | PG | PG13 | runout | terrain | R | X.
+  // Only R, X, and "runout" are worth surfacing — the rest are noise.
+  safety?: string | null;
+  type?: {
+    sport?: boolean | null;
+    trad?: boolean | null;
+    bouldering?: boolean | null;
+    tr?: boolean | null;
+    mixed?: boolean | null;
+    ice?: boolean | null;
+    aid?: boolean | null;
+    alpine?: boolean | null;
+    deepwatersolo?: boolean | null;
+  } | null;
+  pitches?: { id: string }[] | null;
   grades?: { yds?: string | null; vscale?: string | null } | null;
 };
 
@@ -56,6 +72,22 @@ const GET_AREA = gql`
       climbs {
         id
         name
+        fa
+        safety
+        type {
+          sport
+          trad
+          bouldering
+          tr
+          mixed
+          ice
+          aid
+          alpine
+          deepwatersolo
+        }
+        pitches {
+          id
+        }
         grades {
           yds
           vscale
@@ -188,17 +220,7 @@ export default async function AreaPage({
                 </h2>
                 <ul className="bg-white dark:bg-stone-900 rounded-lg border border-stone-200 dark:border-stone-800 divide-y divide-stone-200 dark:divide-stone-800">
                   {sortClimbs(area.climbs).map((climb) => (
-                    <li
-                      key={climb.id}
-                      className="flex items-baseline justify-between px-6 py-3"
-                    >
-                      <span className="text-stone-900 dark:text-stone-100">
-                        {climb.name}
-                      </span>
-                      <span className="text-sm text-stone-500 dark:text-stone-400 font-mono">
-                        {climb.grades?.yds ?? climb.grades?.vscale ?? "—"}
-                      </span>
-                    </li>
+                    <ClimbRow key={climb.id} climb={climb} />
                   ))}
                 </ul>
               </section>
@@ -257,6 +279,68 @@ function sortChildren(children: AreaCardData[]): AreaCardData[] {
     if (b.totalClimbs !== a.totalClimbs) return b.totalClimbs - a.totalClimbs;
     return a.area_name.localeCompare(b.area_name);
   });
+}
+
+function ClimbRow({ climb }: { climb: Climb }) {
+  const grade = climb.grades?.yds ?? climb.grades?.vscale ?? "—";
+  const type = formatClimbType(climb.type);
+  const pitchCount = climb.pitches?.length ?? 0;
+  // R/X are the danger ratings climbers actually care about. "runout" is
+  // a free-form severity that also matters; PG/PG13/UNSPECIFIED don't.
+  const danger =
+    climb.safety === "R" || climb.safety === "X" || climb.safety === "runout"
+      ? climb.safety === "runout"
+        ? "Runout"
+        : climb.safety
+      : null;
+
+  const metaParts: string[] = [];
+  if (type) metaParts.push(type);
+  if (pitchCount > 1) metaParts.push(`${pitchCount} pitches`);
+  const meta = metaParts.join(" · ");
+  const fa = climb.fa?.trim();
+
+  return (
+    <li className="px-6 py-3">
+      <div className="flex items-baseline justify-between gap-4">
+        <span className="text-stone-900 dark:text-stone-100">{climb.name}</span>
+        <span className="text-sm text-stone-500 dark:text-stone-400 font-mono shrink-0">
+          {grade}
+        </span>
+      </div>
+      {(meta || danger || fa) && (
+        <div className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+          {meta}
+          {meta && danger && " · "}
+          {danger && (
+            <span className="font-semibold text-red-700 dark:text-red-400">
+              {danger}
+            </span>
+          )}
+          {(meta || danger) && fa && " · "}
+          {fa && <span>FA: {fa}</span>}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function formatClimbType(type: Climb["type"]): string | null {
+  if (!type) return null;
+  // Sport-first ordering — at every crag I sampled, sport routes outnumber
+  // the others, so listing it first reads naturally. Order after that
+  // roughly tracks frequency: trad, bouldering, TR, then the rare types.
+  const labels: string[] = [];
+  if (type.sport) labels.push("Sport");
+  if (type.trad) labels.push("Trad");
+  if (type.bouldering) labels.push("Boulder");
+  if (type.tr) labels.push("TR");
+  if (type.mixed) labels.push("Mixed");
+  if (type.ice) labels.push("Ice");
+  if (type.aid) labels.push("Aid");
+  if (type.alpine) labels.push("Alpine");
+  if (type.deepwatersolo) labels.push("DWS");
+  return labels.length > 0 ? labels.join("/") : null;
 }
 
 function sortClimbs(climbs: Climb[]): Climb[] {
