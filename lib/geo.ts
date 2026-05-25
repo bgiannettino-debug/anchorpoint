@@ -19,13 +19,10 @@ export function haversineMiles(a: LatLng, b: LatLng): number {
 }
 
 /**
- * Human-readable distance — sub-mile in feet (to the nearest 10 ft so
- * the result is scannable), single-decimal miles up to ten, otherwise
- * rounded miles. Matches how guidebooks usually phrase "300 ft" /
- * "3.4 mi" / "47 mi".
+ * Human-readable distance — single-decimal miles up to ten, otherwise
+ * rounded miles. "0.5 mi" / "3.4 mi" / "47 mi".
  */
 export function formatDistanceMiles(miles: number): string {
-  if (miles < 1) return `${Math.round(miles * 528) * 10} ft`;
   if (miles < 10) return `${miles.toFixed(1)} mi`;
   return `${Math.round(miles)} mi`;
 }
