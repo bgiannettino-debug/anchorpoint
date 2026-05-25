@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { gql } from "@apollo/client";
@@ -7,6 +8,7 @@ import { gradeToNumber } from "@/lib/grades";
 
 type Climb = {
   id: string;
+  uuid: string;
   name: string;
   fa?: string | null;
   // OpenBeta uses a "SafetyEnum": UNSPECIFIED | PG | PG13 | runout | terrain | R | X.
@@ -24,6 +26,7 @@ type Climb = {
     deepwatersolo?: boolean | null;
   } | null;
   pitches?: { id: string }[] | null;
+  ticks?: { _id: string }[] | null;
   grades?: { yds?: string | null; vscale?: string | null } | null;
 };
 
@@ -71,6 +74,7 @@ const GET_AREA = gql`
       }
       climbs {
         id
+        uuid
         name
         fa
         safety
@@ -87,6 +91,9 @@ const GET_AREA = gql`
         }
         pitches {
           id
+        }
+        ticks {
+          _id
         }
         grades {
           yds
@@ -293,34 +300,52 @@ function ClimbRow({ climb }: { climb: Climb }) {
         ? "Runout"
         : climb.safety
       : null;
-
-  const metaParts: string[] = [];
-  if (type) metaParts.push(type);
-  if (pitchCount > 1) metaParts.push(`${pitchCount} pitches`);
-  const meta = metaParts.join(" · ");
+  const tickCount = climb.ticks?.length ?? 0;
   const fa = climb.fa?.trim();
 
+  // Assemble meta as JSX nodes joined by " · " so the safety badge can
+  // keep its own styling. Order: route attributes first, then provenance,
+  // then popularity signal last.
+  const parts: React.ReactNode[] = [];
+  if (type) parts.push(type);
+  if (pitchCount > 1) parts.push(`${pitchCount} pitches`);
+  if (danger) {
+    parts.push(
+      <span className="font-semibold text-red-700 dark:text-red-400">
+        {danger}
+      </span>,
+    );
+  }
+  if (fa) parts.push(`FA: ${fa}`);
+  if (tickCount > 0) {
+    parts.push(`${tickCount} tick${tickCount === 1 ? "" : "s"}`);
+  }
+
   return (
-    <li className="px-6 py-3">
-      <div className="flex items-baseline justify-between gap-4">
-        <span className="text-stone-900 dark:text-stone-100">{climb.name}</span>
-        <span className="text-sm text-stone-500 dark:text-stone-400 font-mono shrink-0">
-          {grade}
-        </span>
-      </div>
-      {(meta || danger || fa) && (
-        <div className="text-sm text-stone-500 dark:text-stone-400 mt-1">
-          {meta}
-          {meta && danger && " · "}
-          {danger && (
-            <span className="font-semibold text-red-700 dark:text-red-400">
-              {danger}
-            </span>
-          )}
-          {(meta || danger) && fa && " · "}
-          {fa && <span>FA: {fa}</span>}
+    <li>
+      <Link
+        href={`/climb/${climb.uuid}`}
+        className="block px-6 py-3 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+      >
+        <div className="flex items-baseline justify-between gap-4">
+          <span className="text-stone-900 dark:text-stone-100">
+            {climb.name}
+          </span>
+          <span className="text-sm text-stone-500 dark:text-stone-400 font-mono shrink-0">
+            {grade}
+          </span>
         </div>
-      )}
+        {parts.length > 0 && (
+          <div className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+            {parts.map((p, i) => (
+              <Fragment key={i}>
+                {i > 0 && " · "}
+                {p}
+              </Fragment>
+            ))}
+          </div>
+        )}
+      </Link>
     </li>
   );
 }
