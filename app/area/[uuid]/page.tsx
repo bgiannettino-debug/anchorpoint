@@ -4,6 +4,7 @@ import Link from "next/link";
 import { gql } from "@apollo/client";
 import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
+import { BookmarkButton } from "@/components/bookmark-button";
 import { gradeToNumber } from "@/lib/grades";
 
 type Climb = {
@@ -195,9 +196,18 @@ export default async function AreaPage({
               ancestors={area.ancestors}
             />
 
-            <h1 className="text-4xl font-bold text-stone-900 dark:text-stone-100 mt-2 mb-1">
-              {area.area_name}
-            </h1>
+            <div className="flex items-start justify-between gap-4 mt-2 mb-1">
+              <h1 className="text-4xl font-bold text-stone-900 dark:text-stone-100">
+                {area.area_name}
+              </h1>
+              <div className="pt-2">
+                <BookmarkButton
+                  type="area"
+                  uuid={area.uuid}
+                  name={area.area_name}
+                />
+              </div>
+            </div>
             <p className="text-stone-600 dark:text-stone-400 mb-8">
               {area.totalClimbs > 0
                 ? `${area.totalClimbs} climb${area.totalClimbs === 1 ? "" : "s"}`
