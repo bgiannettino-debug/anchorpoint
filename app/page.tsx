@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { gql } from "@apollo/client";
@@ -91,26 +92,26 @@ export default async function Home({
         {query === "" ? (
           <p className="text-stone-500 dark:text-stone-400 text-center py-12">
             Search for an area to get started. Try{" "}
-            <a
+            <Link
               href="/?q=Smith+Rock"
               className="text-stone-900 dark:text-stone-100 underline underline-offset-4 hover:text-stone-700 dark:hover:text-stone-300"
             >
               Smith Rock
-            </a>
+            </Link>
             ,{" "}
-            <a
+            <Link
               href="/?q=Joshua+Tree"
               className="text-stone-900 dark:text-stone-100 underline underline-offset-4 hover:text-stone-700 dark:hover:text-stone-300"
             >
               Joshua Tree
-            </a>
+            </Link>
             , or{" "}
-            <a
+            <Link
               href="/?q=Red+Rocks"
               className="text-stone-900 dark:text-stone-100 underline underline-offset-4 hover:text-stone-700 dark:hover:text-stone-300"
             >
               Red Rocks
-            </a>
+            </Link>
             .
           </p>
         ) : apiError ? (

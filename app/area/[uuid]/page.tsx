@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { gql } from "@apollo/client";
 import { getClient } from "@/lib/apollo-client";
@@ -63,6 +64,33 @@ const GET_AREA = gql`
     }
   }
 `;
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ uuid: string }>;
+}): Promise<Metadata> {
+  const { uuid } = await params;
+  // Reuses the same query as the page render — Apollo's per-request
+  // InMemoryCache dedupes this, so we don't pay for a second network call.
+  try {
+    const result = await getClient().query<GetAreaResponse>({
+      query: GET_AREA,
+      variables: { uuid },
+      errorPolicy: "all",
+    });
+    const name = result.data?.area?.area_name;
+    if (name) {
+      return {
+        title: `${name} · Anchorpoint`,
+        description: `Climbing area: ${name}`,
+      };
+    }
+  } catch {
+    // Fall through to default metadata on API failure.
+  }
+  return {};
+}
 
 export default async function AreaPage({
   params,
