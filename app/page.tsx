@@ -39,11 +39,13 @@ export default async function Home({
   const { q } = await searchParams;
   const query = q?.trim() ?? "";
 
-  // Only run the GraphQL query if the user has searched for something.
-  // No point hitting the API with an empty string on first page load.
+  // Skip the API call for empty or one-character queries — a single
+  // letter returns a huge, useless result set from OpenBeta. The form's
+  // `minLength={2}` blocks this from normal submissions; this guard
+  // covers manually-edited URLs like `/?q=a`.
   let areas: AreaCardData[] = [];
   let apiError = false;
-  if (query) {
+  if (query.length >= 2) {
     try {
       const result = await getClient().query<GetAreasResponse>({
         query: GET_AREAS,
@@ -76,8 +78,9 @@ export default async function Home({
             type="search"
             name="q"
             defaultValue={query}
+            minLength={2}
             placeholder="Search for a climbing area (e.g. Smith Rock, Joshua Tree)"
-            aria-label="Search climbing areas"
+            aria-label="Search climbing areas (minimum 2 characters)"
             autoFocus
             className="flex-1 px-4 py-3 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent"
           />
@@ -89,7 +92,7 @@ export default async function Home({
           </button>
         </form>
 
-        {query === "" ? (
+        {query.length < 2 ? (
           <p className="text-stone-500 dark:text-stone-400 text-center py-12">
             Search for an area to get started. Try{" "}
             <Link
