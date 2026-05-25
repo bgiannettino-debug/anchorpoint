@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { NearMeButton } from "@/components/near-me-button";
+import { BookmarksPreview } from "@/components/bookmarks-preview";
 import { haversineMiles } from "@/lib/geo";
 import { gql } from "@apollo/client";
 
@@ -196,8 +197,10 @@ export default async function Home({
             <NearResults results={nearResults} />
           )
         ) : query === "" ? (
-          <p className="text-stone-500 dark:text-stone-400 text-center py-12">
-            Search for an area to get started. Try{" "}
+          <>
+            <BookmarksPreview />
+            <p className="text-stone-500 dark:text-stone-400 text-center py-12">
+              Search for an area to get started. Try{" "}
             <Link
               href="/?q=Smith+Rock"
               className="text-stone-900 dark:text-stone-100 underline underline-offset-4 hover:text-stone-700 dark:hover:text-stone-300"
@@ -219,7 +222,8 @@ export default async function Home({
               Red Rocks
             </Link>
             .
-          </p>
+            </p>
+          </>
         ) : apiError ? (
           <ApiErrorBlock />
         ) : (

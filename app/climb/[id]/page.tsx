@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { gql } from "@apollo/client";
 import { getClient } from "@/lib/apollo-client";
+import { BookmarkButton } from "@/components/bookmark-button";
 
 type ClimbDetail = {
   uuid: string;
@@ -224,6 +225,17 @@ export default async function ClimbPage({
             FA: {fa}
           </p>
         )}
+
+        <div className="mt-4">
+          <BookmarkButton
+            type="climb"
+            uuid={climb.uuid}
+            name={climb.name}
+            grade={grade !== "—" ? grade : undefined}
+            parentUuid={climb.parent?.uuid}
+            parentName={climb.parent?.area_name}
+          />
+        </div>
 
         {climb.media && climb.media.length > 0 && (
           <section className="mt-8">
