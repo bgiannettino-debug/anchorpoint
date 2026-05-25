@@ -59,7 +59,7 @@ export function NearMeButton() {
     safetyTimer.current = window.setTimeout(() => {
       setStatus("error");
       setError(
-        "We didn't hear back from your browser. Make sure location is allowed for this site, or use search above.",
+        "We didn't hear back from your browser. Click again to retry, or reload the page if no prompt appears.",
       );
     }, 12000);
 
@@ -76,8 +76,8 @@ export function NearMeButton() {
         setStatus("error");
         setError(
           err.code === err.PERMISSION_DENIED
-            ? "Location permission was denied. Use search above instead."
-            : "Couldn't get your location. Try again or use search above.",
+            ? "Location permission was denied. Click again to retry, or reload the page if no prompt appears."
+            : "Couldn't get your location. Click again to retry, or reload the page if no prompt appears.",
         );
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
