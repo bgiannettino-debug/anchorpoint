@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { formatGradeRange } from "@/lib/grades";
+import { formatDistanceKm } from "@/lib/geo";
 
 type GradeCount = {
   label: string;
@@ -14,7 +15,13 @@ export type AreaCardData = {
   aggregate?: { byGrade?: GradeCount[] | null } | null;
 };
 
-export function AreaCard({ area }: { area: AreaCardData }) {
+export function AreaCard({
+  area,
+  distanceKm,
+}: {
+  area: AreaCardData;
+  distanceKm?: number;
+}) {
   const labels = area.aggregate?.byGrade?.map((g) => g.label) ?? [];
   const range = formatGradeRange(labels);
   const count =
@@ -28,9 +35,16 @@ export function AreaCard({ area }: { area: AreaCardData }) {
       href={`/area/${area.uuid}`}
       className="block bg-white dark:bg-stone-900 rounded-lg shadow-sm p-6 border border-stone-200 dark:border-stone-800 hover:border-stone-400 dark:hover:border-stone-600 hover:shadow-md transition-all"
     >
-      <h3 className="text-xl font-semibold text-stone-900 dark:text-stone-100">
-        {area.area_name}
-      </h3>
+      <div className="flex items-baseline justify-between gap-4">
+        <h3 className="text-xl font-semibold text-stone-900 dark:text-stone-100">
+          {area.area_name}
+        </h3>
+        {distanceKm != null && (
+          <span className="text-sm text-stone-600 dark:text-stone-300 font-mono shrink-0">
+            {formatDistanceKm(distanceKm)}
+          </span>
+        )}
+      </div>
       {area.metadata?.lat != null && area.metadata?.lng != null && (
         <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
           {area.metadata.lat.toFixed(4)}, {area.metadata.lng.toFixed(4)}
