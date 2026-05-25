@@ -133,10 +133,14 @@ export async function generateMetadata({
 
 export default async function AreaPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ uuid: string }>;
+  searchParams: Promise<{ route?: string }>;
 }) {
   const { uuid } = await params;
+  const { route } = await searchParams;
+  const routeFilter = route?.trim() ?? "";
 
   let area: AreaDetail | null = null;
   let apiError = false;
@@ -221,16 +225,11 @@ export default async function AreaPage({
             )}
 
             {area.climbs.length > 0 && (
-              <section>
-                <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
-                  Climbs ({area.climbs.length})
-                </h2>
-                <ul className="bg-white dark:bg-stone-900 rounded-lg border border-stone-200 dark:border-stone-800 divide-y divide-stone-200 dark:divide-stone-800">
-                  {sortClimbs(area.climbs).map((climb) => (
-                    <ClimbRow key={climb.id} climb={climb} />
-                  ))}
-                </ul>
-              </section>
+              <ClimbsSection
+                uuid={uuid}
+                climbs={area.climbs}
+                filter={routeFilter}
+              />
             )}
 
             {area.children.length === 0 && area.climbs.length === 0 && (
@@ -286,6 +285,60 @@ function sortChildren(children: AreaCardData[]): AreaCardData[] {
     if (b.totalClimbs !== a.totalClimbs) return b.totalClimbs - a.totalClimbs;
     return a.area_name.localeCompare(b.area_name);
   });
+}
+
+function ClimbsSection({
+  uuid,
+  climbs,
+  filter,
+}: {
+  uuid: string;
+  climbs: Climb[];
+  filter: string;
+}) {
+  const matches = filter
+    ? climbs.filter((c) =>
+        c.name.toLowerCase().includes(filter.toLowerCase()),
+      )
+    : climbs;
+  const heading = filter
+    ? `Climbs (${matches.length} of ${climbs.length} matching "${filter}")`
+    : `Climbs (${climbs.length})`;
+
+  return (
+    <section>
+      <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
+        {heading}
+      </h2>
+      <form action="" method="GET" role="search" className="mb-4">
+        <input
+          type="search"
+          name="route"
+          defaultValue={filter}
+          placeholder="Filter routes by name"
+          aria-label="Filter routes by name"
+          className="w-full px-4 py-2 text-sm rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent"
+        />
+      </form>
+      {matches.length === 0 ? (
+        <p className="text-stone-500 dark:text-stone-400">
+          No climbs match &quot;{filter}&quot;.{" "}
+          <Link
+            href={`/area/${uuid}`}
+            className="underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+          >
+            Show all
+          </Link>
+        </p>
+      ) : (
+        <ul className="bg-white dark:bg-stone-900 rounded-lg border border-stone-200 dark:border-stone-800 divide-y divide-stone-200 dark:divide-stone-800">
+          {sortClimbs(matches).map((climb) => (
+            <ClimbRow key={climb.id} climb={climb} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 function ClimbRow({ climb }: { climb: Climb }) {
