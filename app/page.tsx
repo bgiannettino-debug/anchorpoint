@@ -1,11 +1,29 @@
 import Link from "next/link";
 import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
+import { NearMeButton } from "@/components/near-me-button";
+import { haversineKm } from "@/lib/geo";
 import { gql } from "@apollo/client";
 
 type GetAreasResponse = {
   areas: AreaCardData[];
 };
+
+type CragsNearGroup = {
+  _id: number;
+  count: number;
+  crags: AreaCardData[] | null;
+};
+
+type GetCragsNearResponse = {
+  cragsNear: (CragsNearGroup | null)[] | null;
+};
+
+// 50 km covers a generous driving range for "after-work crag near home"
+// while keeping the result set manageable. Crags within this radius are
+// sorted by true haversine distance from the query point.
+const NEAR_RADIUS_METERS = 50_000;
+const NEAR_RESULT_LIMIT = 20;
 
 // Use the area's `aggregate.byGrade` and `totalClimbs` so the counts/grade
 // range are recursive — a parent area like "Smith Rock" reports all 1200+
@@ -31,19 +49,96 @@ const GET_AREAS = gql`
   }
 `;
 
+// Note: we deliberately don't select `placeId` from cragsNear groups.
+// OpenBeta's API throws "Cannot return null for non-nullable field
+// CragsNear.placeId" when no placeId input is provided, even though the
+// query without it returns useful data. errorPolicy "all" elsewhere
+// would also work, but skipping the field is cleaner.
+const GET_CRAGS_NEAR = gql`
+  query GetCragsNear($lat: Float!, $lng: Float!, $max: Int!) {
+    cragsNear(
+      lnglat: { lat: $lat, lng: $lng }
+      minDistance: 0
+      maxDistance: $max
+      includeCrags: true
+    ) {
+      _id
+      count
+      crags {
+        uuid
+        area_name
+        totalClimbs
+        metadata {
+          lat
+          lng
+        }
+        aggregate {
+          byGrade {
+            label
+            count
+          }
+        }
+      }
+    }
+  }
+`;
+
+type NearCrag = AreaCardData & { distanceKm: number };
+
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; lat?: string; lng?: string }>;
 }) {
-  const { q } = await searchParams;
+  const { q, lat, lng } = await searchParams;
   const query = q?.trim() ?? "";
 
-  // Only run the GraphQL query if the user has searched for something.
-  // No point hitting the API with an empty string on first page load.
+  // Geolocation mode wins over search if both happen to be set, since
+  // lat/lng comes from the NearMeButton flow (explicit intent) while q
+  // could be a stale URL.
+  const userLat = parseCoord(lat);
+  const userLng = parseCoord(lng);
+  const nearMode = userLat !== null && userLng !== null;
+
   let areas: AreaCardData[] = [];
+  let nearResults: NearCrag[] = [];
   let apiError = false;
-  if (query) {
+
+  if (nearMode) {
+    try {
+      const result = await getClient().query<GetCragsNearResponse>({
+        query: GET_CRAGS_NEAR,
+        variables: {
+          lat: userLat,
+          lng: userLng,
+          max: NEAR_RADIUS_METERS,
+        },
+      });
+      const groups = result.data?.cragsNear ?? [];
+      // Flatten all distance buckets, drop crags without coords, attach
+      // a true haversine distance, sort nearest-first, and cap.
+      const all: NearCrag[] = [];
+      for (const g of groups) {
+        for (const c of g?.crags ?? []) {
+          const cLat = c.metadata?.lat;
+          const cLng = c.metadata?.lng;
+          if (cLat == null || cLng == null) continue;
+          all.push({
+            ...c,
+            distanceKm: haversineKm(
+              { lat: userLat, lng: userLng },
+              { lat: cLat, lng: cLng },
+            ),
+          });
+        }
+      }
+      all.sort((a, b) => a.distanceKm - b.distanceKm);
+      nearResults = all.slice(0, NEAR_RESULT_LIMIT);
+    } catch (err) {
+      console.error("OpenBeta cragsNear query failed:", err);
+      apiError = true;
+    }
+  } else if (query) {
     try {
       const result = await getClient().query<GetAreasResponse>({
         query: GET_AREAS,
@@ -89,7 +184,15 @@ export default async function Home({
           </button>
         </form>
 
-        {query === "" ? (
+        <NearMeButton />
+
+        {nearMode ? (
+          apiError ? (
+            <ApiErrorBlock />
+          ) : (
+            <NearResults results={nearResults} />
+          )
+        ) : query === "" ? (
           <p className="text-stone-500 dark:text-stone-400 text-center py-12">
             Search for an area to get started. Try{" "}
             <Link
@@ -115,15 +218,7 @@ export default async function Home({
             .
           </p>
         ) : apiError ? (
-          <div className="bg-white dark:bg-stone-900 rounded-lg p-6 border border-stone-200 dark:border-stone-800">
-            <h2 className="text-xl font-semibold text-stone-900 dark:text-stone-100 mb-2">
-              We couldn&apos;t reach the climbing database
-            </h2>
-            <p className="text-stone-600 dark:text-stone-400">
-              The OpenBeta API didn&apos;t respond. This usually clears up in
-              a moment — try your search again.
-            </p>
-          </div>
+          <ApiErrorBlock />
         ) : (
           <>
             <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
@@ -147,5 +242,51 @@ export default async function Home({
         )}
       </div>
     </main>
+  );
+}
+
+function parseCoord(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const n = Number(raw);
+  // Reject NaN, infinity, and obviously-malformed values. Lat is bounded
+  // to ±90, lng to ±180 — anything outside that came from a bad URL.
+  if (!Number.isFinite(n) || Math.abs(n) > 180) return null;
+  return n;
+}
+
+function ApiErrorBlock() {
+  return (
+    <div className="bg-white dark:bg-stone-900 rounded-lg p-6 border border-stone-200 dark:border-stone-800">
+      <h2 className="text-xl font-semibold text-stone-900 dark:text-stone-100 mb-2">
+        We couldn&apos;t reach the climbing database
+      </h2>
+      <p className="text-stone-600 dark:text-stone-400">
+        The OpenBeta API didn&apos;t respond. This usually clears up in a
+        moment — try again.
+      </p>
+    </div>
+  );
+}
+
+function NearResults({ results }: { results: NearCrag[] }) {
+  if (results.length === 0) {
+    return (
+      <p className="text-stone-500 dark:text-stone-400">
+        No climbing areas within 50 km of you. Try searching by name.
+      </p>
+    );
+  }
+  return (
+    <>
+      <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
+        Nearest {results.length} climbing area
+        {results.length === 1 ? "" : "s"}
+      </h2>
+      <div className="space-y-4">
+        {results.map((c) => (
+          <AreaCard key={c.uuid} area={c} distanceKm={c.distanceKm} />
+        ))}
+      </div>
+    </>
   );
 }
