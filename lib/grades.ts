@@ -40,19 +40,14 @@ export function gradeToNumber(grade: string): number | null {
   return num + sub;
 }
 
-type ClimbWithGrade = {
-  grades?: { yds?: string | null } | null;
-};
-
 /**
- * Given a list of climbs, return a human-readable grade range
- * like "5.7 – 5.13a" or "5.10b" (when all climbs share a grade).
- * Returns null if no climbs have parseable YDS grades.
+ * Given a list of YDS grade strings, return a human-readable range
+ * like "5.7 – 5.13a" or "5.10b" (when all share a grade).
+ * Returns null if none are parseable YDS grades (e.g. all V-grades).
  */
-export function formatGradeRange(climbs: ClimbWithGrade[]): string | null {
+export function formatGradeRange(grades: string[]): string | null {
   // Collect (grade string, sort key) pairs, dropping anything unparseable.
-  const graded = climbs
-    .map((c) => c.grades?.yds)
+  const graded = grades
     .filter((g): g is string => typeof g === "string" && g.length > 0)
     .map((g) => ({ grade: g, sort: gradeToNumber(g) }))
     .filter((g): g is { grade: string; sort: number } => g.sort !== null);

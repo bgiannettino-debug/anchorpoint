@@ -2,37 +2,41 @@ import { getClient } from "@/lib/apollo-client";
 import { formatGradeRange } from "@/lib/grades";
 import { gql } from "@apollo/client";
 
-type Climb = {
-  id: string;
-  name: string;
-  grades?: { yds?: string | null } | null;
+type GradeCount = {
+  label: string;
+  count: number;
 };
 
 type Area = {
   uuid: string;
   area_name: string;
+  totalClimbs: number;
   metadata?: { lat?: number | null; lng?: number | null } | null;
-  climbs?: Climb[] | null;
+  aggregate?: { byGrade?: GradeCount[] | null } | null;
 };
 
 type GetAreasResponse = {
   areas: Area[];
 };
 
+// Use the area's `aggregate.byGrade` and `totalClimbs` so the counts/grade
+// range are recursive — a parent area like "Smith Rock" reports all 1200+
+// climbs nested under its children, not just whatever (if anything) is
+// attached directly to that node.
 const GET_AREAS = gql`
   query GetAreas($query: String!) {
     areas(filter: { area_name: { match: $query, exactMatch: false } }) {
       uuid
       area_name
+      totalClimbs
       metadata {
         lat
         lng
       }
-      climbs {
-        id
-        name
-        grades {
-          yds
+      aggregate {
+        byGrade {
+          label
+          count
         }
       }
     }
@@ -161,11 +165,13 @@ export default async function Home({
                           {area.metadata.lng.toFixed(4)}
                         </p>
                       )}
-                    {area.climbs && area.climbs.length > 0 && (
+                    {area.totalClimbs > 0 && (
                       <p className="text-sm text-stone-600 dark:text-stone-300 mt-2">
                         {(() => {
-                          const range = formatGradeRange(area.climbs);
-                          const count = `${area.climbs.length} climb${area.climbs.length === 1 ? "" : "s"}`;
+                          const labels =
+                            area.aggregate?.byGrade?.map((g) => g.label) ?? [];
+                          const range = formatGradeRange(labels);
+                          const count = `${area.totalClimbs} climb${area.totalClimbs === 1 ? "" : "s"}`;
                           return range ? `${range} · ${count}` : count;
                         })()}
                       </p>
