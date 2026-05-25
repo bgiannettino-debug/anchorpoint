@@ -1,22 +1,9 @@
 import { getClient } from "@/lib/apollo-client";
-import { formatGradeRange } from "@/lib/grades";
+import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { gql } from "@apollo/client";
 
-type GradeCount = {
-  label: string;
-  count: number;
-};
-
-type Area = {
-  uuid: string;
-  area_name: string;
-  totalClimbs: number;
-  metadata?: { lat?: number | null; lng?: number | null } | null;
-  aggregate?: { byGrade?: GradeCount[] | null } | null;
-};
-
 type GetAreasResponse = {
-  areas: Area[];
+  areas: AreaCardData[];
 };
 
 // Use the area's `aggregate.byGrade` and `totalClimbs` so the counts/grade
@@ -53,7 +40,7 @@ export default async function Home({
 
   // Only run the GraphQL query if the user has searched for something.
   // No point hitting the API with an empty string on first page load.
-  let areas: Area[] = [];
+  let areas: AreaCardData[] = [];
   let apiError = false;
   if (query) {
     try {
@@ -151,32 +138,7 @@ export default async function Home({
             ) : (
               <div className="space-y-4">
                 {areas.map((area) => (
-                  <div
-                    key={area.uuid}
-                    className="bg-white dark:bg-stone-900 rounded-lg shadow-sm p-6 border border-stone-200 dark:border-stone-800"
-                  >
-                    <h3 className="text-xl font-semibold text-stone-900 dark:text-stone-100">
-                      {area.area_name}
-                    </h3>
-                    {area.metadata?.lat != null &&
-                      area.metadata?.lng != null && (
-                        <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
-                          {area.metadata.lat.toFixed(4)},{" "}
-                          {area.metadata.lng.toFixed(4)}
-                        </p>
-                      )}
-                    {area.totalClimbs > 0 && (
-                      <p className="text-sm text-stone-600 dark:text-stone-300 mt-2">
-                        {(() => {
-                          const labels =
-                            area.aggregate?.byGrade?.map((g) => g.label) ?? [];
-                          const range = formatGradeRange(labels);
-                          const count = `${area.totalClimbs} climb${area.totalClimbs === 1 ? "" : "s"}`;
-                          return range ? `${range} · ${count}` : count;
-                        })()}
-                      </p>
-                    )}
-                  </div>
+                  <AreaCard key={area.uuid} area={area} />
                 ))}
               </div>
             )}
