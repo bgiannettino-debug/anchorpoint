@@ -27,7 +27,14 @@ export function locationKey(lat: number, lng: number): string {
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
+  if (!url || !serviceKey) {
+    console.error(
+      "[geocoding] Missing env var(s):" +
+        (!url ? " NEXT_PUBLIC_SUPABASE_URL" : "") +
+        (!serviceKey ? " SUPABASE_SERVICE_ROLE_KEY" : ""),
+    );
+    return null;
+  }
   return createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -53,7 +60,10 @@ async function fetchFromMapbox(
   lng: number,
 ): Promise<MapboxResult | null> {
   const token = process.env.MAPBOX_ACCESS_TOKEN;
-  if (!token) return null;
+  if (!token) {
+    console.error("[geocoding] MAPBOX_ACCESS_TOKEN is not set");
+    return null;
+  }
 
   const url =
     `https://api.mapbox.com/geocoding/v5/mapbox.places/` +
@@ -62,7 +72,13 @@ async function fetchFromMapbox(
 
   try {
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(
+        `[geocoding] Mapbox ${res.status} for ${lat},${lng}: ${body.slice(0, 200)}`,
+      );
+      return null;
+    }
     const data = (await res.json()) as { features?: MapboxFeature[] };
     const features = data.features ?? [];
 
@@ -108,7 +124,8 @@ async function fetchFromMapbox(
       country: countryText,
       countryCode,
     };
-  } catch {
+  } catch (err) {
+    console.error(`[geocoding] Mapbox fetch failed for ${lat},${lng}:`, err);
     return null;
   }
 }
@@ -140,10 +157,13 @@ export async function resolveLocations(
   const orFilter = uniqueList
     .map((c) => `and(lat.eq.${c.lat},lng.eq.${c.lng})`)
     .join(",");
-  const { data: cached } = await admin
+  const { data: cached, error: selectError } = await admin
     .from("geocoded_locations")
     .select("lat, lng, display")
     .or(orFilter);
+  if (selectError) {
+    console.error("[geocoding] Supabase select failed:", selectError);
+  }
 
   const cachedKeys = new Set<string>();
   for (const row of (cached ?? []) as {
@@ -187,6 +207,11 @@ export async function resolveLocations(
       .upsert(toInsert, {
         onConflict: "lat,lng",
         ignoreDuplicates: true,
+      })
+      .then(({ error }) => {
+        if (error) {
+          console.error("[geocoding] Supabase upsert failed:", error);
+        }
       });
   }
 
