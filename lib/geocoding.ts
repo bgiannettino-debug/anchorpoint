@@ -65,10 +65,14 @@ async function fetchFromMapbox(
     return null;
   }
 
+  // Mapbox rejects `limit` when multiple types are passed (HTTP 422:
+  // "limit must be combined with a single type parameter when reverse
+  // geocoding"). Default behavior returns one feature per requested
+  // type, which is exactly what we want.
   const url =
     `https://api.mapbox.com/geocoding/v5/mapbox.places/` +
     `${lng},${lat}.json?access_token=${encodeURIComponent(token)}` +
-    `&types=place,region,country&limit=5`;
+    `&types=place,region,country`;
 
   try {
     const res = await fetch(url);
