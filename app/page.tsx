@@ -5,6 +5,7 @@ import { NearMeButton } from "@/components/near-me-button";
 import { BookmarksPreview } from "@/components/bookmarks-preview";
 import { TicksPreview } from "@/components/ticks-preview";
 import { haversineMiles } from "@/lib/geo";
+import { locationKey, resolveLocations } from "@/lib/geocoding";
 import { gql } from "@apollo/client";
 
 type GetAreasResponse = {
@@ -156,6 +157,22 @@ export default async function Home({
     }
   }
 
+  // Batch-resolve City/State labels for every card on the page in one
+  // pass so AreaCard never has to round-trip Mapbox itself.
+  const allCoords = [...areas, ...nearResults]
+    .map((a) => a.metadata)
+    .filter(
+      (m): m is { lat: number; lng: number } =>
+        m?.lat != null && m?.lng != null,
+    )
+    .map((m) => ({ lat: m.lat, lng: m.lng }));
+  const locations = await resolveLocations(allCoords);
+
+  function locationFor(meta: { lat?: number | null; lng?: number | null } | null | undefined) {
+    if (meta?.lat == null || meta?.lng == null) return undefined;
+    return locations.get(locationKey(meta.lat, meta.lng));
+  }
+
   return (
     <main className="min-h-screen bg-stone-50 dark:bg-stone-950 p-8">
       <div className="max-w-4xl mx-auto">
@@ -195,7 +212,10 @@ export default async function Home({
           apiError ? (
             <ApiErrorBlock />
           ) : (
-            <NearResults results={nearResults} />
+            <NearResults
+              results={nearResults}
+              locationFor={locationFor}
+            />
           )
         ) : query === "" ? (
           <>
@@ -243,7 +263,11 @@ export default async function Home({
             ) : (
               <div className="space-y-4">
                 {areas.map((area) => (
-                  <AreaCard key={area.uuid} area={area} />
+                  <AreaCard
+                    key={area.uuid}
+                    area={area}
+                    location={locationFor(area.metadata)}
+                  />
                 ))}
               </div>
             )}
@@ -277,7 +301,15 @@ function ApiErrorBlock() {
   );
 }
 
-function NearResults({ results }: { results: NearCrag[] }) {
+function NearResults({
+  results,
+  locationFor,
+}: {
+  results: NearCrag[];
+  locationFor: (
+    meta: { lat?: number | null; lng?: number | null } | null | undefined,
+  ) => string | undefined;
+}) {
   if (results.length === 0) {
     return (
       <p className="text-stone-500 dark:text-stone-400">
@@ -294,7 +326,12 @@ function NearResults({ results }: { results: NearCrag[] }) {
       </h2>
       <div className="space-y-4">
         {results.map((c) => (
-          <AreaCard key={c.uuid} area={c} distanceMiles={c.distanceMiles} />
+          <AreaCard
+            key={c.uuid}
+            area={c}
+            distanceMiles={c.distanceMiles}
+            location={locationFor(c.metadata)}
+          />
         ))}
       </div>
     </>
