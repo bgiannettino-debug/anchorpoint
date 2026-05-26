@@ -7,15 +7,45 @@ import {
   getBookmarksSnapshot,
   subscribeBookmarks,
 } from "@/lib/bookmarks";
+import {
+  getAuthServerSnapshot,
+  getAuthSnapshot,
+  subscribeAuth,
+} from "@/lib/auth";
 
 const PREVIEW_LIMIT = 5;
 
 export function BookmarksPreview() {
+  const auth = useSyncExternalStore(
+    subscribeAuth,
+    getAuthSnapshot,
+    getAuthServerSnapshot,
+  );
   const items = useSyncExternalStore(
     subscribeBookmarks,
     getBookmarksSnapshot,
     getBookmarksServerSnapshot,
   );
+
+  // Loading: render nothing so the intro copy remains the main thing on
+  // screen until we know whether to show bookmarks or the sign-in CTA.
+  if (auth.status === "loading") return null;
+
+  if (auth.status === "signed-out") {
+    return (
+      <section className="mb-8">
+        <p className="text-sm text-stone-500 dark:text-stone-400 text-center">
+          <Link
+            href="/login"
+            className="underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+          >
+            Sign in
+          </Link>{" "}
+          to save and revisit your favorite areas and routes.
+        </p>
+      </section>
+    );
+  }
 
   if (items.length === 0) return null;
 
