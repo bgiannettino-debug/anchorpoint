@@ -234,6 +234,10 @@ export default async function ClimbPage({
             grade={grade !== "—" ? grade : undefined}
             parentUuid={climb.parent?.uuid}
             parentName={climb.parent?.area_name}
+            // ancestors[last] is the climb itself — drop it so we only
+            // store area UUIDs in the chain. Used to nest the climb
+            // under the closest bookmarked ancestor on /bookmarks.
+            ancestorUuids={climb.ancestors.slice(0, -1)}
           />
         </div>
 
