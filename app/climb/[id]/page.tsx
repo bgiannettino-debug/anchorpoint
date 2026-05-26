@@ -5,6 +5,7 @@ import Image from "next/image";
 import { gql } from "@apollo/client";
 import { getClient } from "@/lib/apollo-client";
 import { BookmarkButton } from "@/components/bookmark-button";
+import { TickForm } from "@/components/tick-form";
 
 type ClimbDetail = {
   uuid: string;
@@ -226,7 +227,7 @@ export default async function ClimbPage({
           </p>
         )}
 
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <BookmarkButton
             type="climb"
             uuid={climb.uuid}
@@ -237,6 +238,16 @@ export default async function ClimbPage({
             // ancestors[last] is the climb itself — drop it so we only
             // store area UUIDs in the chain. Used to nest the climb
             // under the closest bookmarked ancestor on /bookmarks.
+            ancestorUuids={climb.ancestors.slice(0, -1)}
+          />
+        </div>
+        <div className="mt-3">
+          <TickForm
+            climbUuid={climb.uuid}
+            climbName={climb.name}
+            climbGrade={grade !== "—" ? grade : undefined}
+            parentUuid={climb.parent?.uuid}
+            parentName={climb.parent?.area_name}
             ancestorUuids={climb.ancestors.slice(0, -1)}
           />
         </div>
