@@ -8,6 +8,11 @@ export type Bookmark = {
   grade?: string;
   parentUuid?: string;
   parentName?: string;
+  // For climbs only: the area ancestor chain (root-to-leaf, excluding
+  // the climb itself). Used on the bookmarks page to nest a climb under
+  // the closest bookmarked ancestor area. Optional so older v1 bookmarks
+  // without this field still load.
+  ancestorUuids?: string[];
   // ms epoch; used to sort most-recently-bookmarked first.
   addedAt: number;
 };

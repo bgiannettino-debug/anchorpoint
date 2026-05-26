@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { Fragment, useSyncExternalStore } from "react";
 import Link from "next/link";
 import {
   type Bookmark,
@@ -23,6 +23,34 @@ export default function BookmarksPage() {
   const climbs = items
     .filter((b) => b.type === "climb")
     .sort((a, b) => b.addedAt - a.addedAt);
+
+  // For each climb, find the closest bookmarked ancestor area (if any).
+  // ancestorUuids is root-to-leaf, so we iterate from the end so the
+  // most-specific match wins — e.g. if both "Red River Gorge" and
+  // "Undertow Wall" are bookmarked, the climb nests under Undertow Wall.
+  const areaIds = new Set(areas.map((a) => a.uuid));
+  const climbsByAreaUuid = new Map<string, Bookmark[]>();
+  const orphanClimbs: Bookmark[] = [];
+
+  for (const climb of climbs) {
+    const chain =
+      climb.ancestorUuids ??
+      (climb.parentUuid ? [climb.parentUuid] : []);
+    let matched: string | null = null;
+    for (let i = chain.length - 1; i >= 0; i--) {
+      if (areaIds.has(chain[i])) {
+        matched = chain[i];
+        break;
+      }
+    }
+    if (matched) {
+      const list = climbsByAreaUuid.get(matched) ?? [];
+      list.push(climb);
+      climbsByAreaUuid.set(matched, list);
+    } else {
+      orphanClimbs.push(climb);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-stone-50 dark:bg-stone-950 p-8">
@@ -51,20 +79,32 @@ export default function BookmarksPage() {
                   Areas ({areas.length})
                 </h2>
                 <ul className="bg-white dark:bg-stone-900 rounded-lg border border-stone-200 dark:border-stone-800 divide-y divide-stone-200 dark:divide-stone-800">
-                  {areas.map((b) => (
-                    <BookmarkRow key={b.uuid} bookmark={b} />
-                  ))}
+                  {areas.map((area) => {
+                    const nested = climbsByAreaUuid.get(area.uuid) ?? [];
+                    return (
+                      <Fragment key={area.uuid}>
+                        <BookmarkRow bookmark={area} />
+                        {nested.map((climb) => (
+                          <BookmarkRow
+                            key={climb.uuid}
+                            bookmark={climb}
+                            indent
+                          />
+                        ))}
+                      </Fragment>
+                    );
+                  })}
                 </ul>
               </section>
             )}
-            {climbs.length > 0 && (
+            {orphanClimbs.length > 0 && (
               <section>
                 <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
-                  Climbs ({climbs.length})
+                  Routes ({orphanClimbs.length})
                 </h2>
                 <ul className="bg-white dark:bg-stone-900 rounded-lg border border-stone-200 dark:border-stone-800 divide-y divide-stone-200 dark:divide-stone-800">
-                  {climbs.map((b) => (
-                    <BookmarkRow key={b.uuid} bookmark={b} />
+                  {orphanClimbs.map((climb) => (
+                    <BookmarkRow key={climb.uuid} bookmark={climb} />
                   ))}
                 </ul>
               </section>
@@ -76,12 +116,20 @@ export default function BookmarksPage() {
   );
 }
 
-function BookmarkRow({ bookmark: b }: { bookmark: Bookmark }) {
+function BookmarkRow({
+  bookmark: b,
+  indent = false,
+}: {
+  bookmark: Bookmark;
+  indent?: boolean;
+}) {
   return (
     <li className="flex items-baseline">
       <Link
         href={b.type === "area" ? `/area/${b.uuid}` : `/climb/${b.uuid}`}
-        className="flex-1 block px-6 py-3 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+        className={`flex-1 block py-3 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors ${
+          indent ? "pl-12 pr-6" : "px-6"
+        }`}
       >
         <div className="flex items-baseline justify-between gap-4">
           <span className="text-stone-900 dark:text-stone-100">{b.name}</span>
@@ -91,7 +139,7 @@ function BookmarkRow({ bookmark: b }: { bookmark: Bookmark }) {
             </span>
           )}
         </div>
-        {b.type === "climb" && b.parentName && (
+        {b.type === "climb" && !indent && b.parentName && (
           <div className="text-sm text-stone-500 dark:text-stone-400 mt-0.5">
             {b.parentName}
           </div>
