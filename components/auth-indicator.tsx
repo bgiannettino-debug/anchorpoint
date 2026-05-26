@@ -33,7 +33,9 @@ export async function AuthIndicator() {
       >
         Ticks
       </Link>
-      <span className="text-stone-600 dark:text-stone-400">{user.email}</span>
+      <span className="hidden sm:inline text-stone-600 dark:text-stone-400 truncate max-w-[18ch]">
+        {user.email}
+      </span>
       <form action={signOut}>
         <button
           type="submit"
