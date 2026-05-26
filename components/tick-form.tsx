@@ -235,7 +235,7 @@ function TickFormSignedIn(props: Props) {
             setOpen(false);
           }}
           disabled={saving}
-          className="text-sm text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-stone-100 transition-colors disabled:opacity-60"
+          className="px-4 py-2 rounded-lg border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 font-medium hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors disabled:opacity-60"
         >
           Cancel
         </button>
