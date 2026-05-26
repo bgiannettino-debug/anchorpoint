@@ -18,9 +18,16 @@ export type AreaCardData = {
 export function AreaCard({
   area,
   distanceMiles,
+  location,
 }: {
   area: AreaCardData;
   distanceMiles?: number;
+  /**
+   * Pre-resolved "City, ST"-style label for the area's coordinates.
+   * Passed in by server components that batch-resolve locations via
+   * lib/geocoding. When absent, the card falls back to the raw lat/lng.
+   */
+  location?: string;
 }) {
   const labels = area.aggregate?.byGrade?.map((g) => g.label) ?? [];
   const range = formatGradeRange(labels);
@@ -45,9 +52,11 @@ export function AreaCard({
           </span>
         )}
       </div>
-      {area.metadata?.lat != null && area.metadata?.lng != null && (
+      {(location ||
+        (area.metadata?.lat != null && area.metadata?.lng != null)) && (
         <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
-          {area.metadata.lat.toFixed(4)}, {area.metadata.lng.toFixed(4)}
+          {location ??
+            `${area.metadata!.lat!.toFixed(4)}, ${area.metadata!.lng!.toFixed(4)}`}
         </p>
       )}
       {subtitle && (

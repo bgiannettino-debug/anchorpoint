@@ -6,6 +6,7 @@ import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { gradeToNumber } from "@/lib/grades";
+import { locationKey, resolveLocations } from "@/lib/geocoding";
 
 type Climb = {
   id: string;
@@ -160,6 +161,28 @@ export default async function AreaPage({
     apiError = true;
   }
 
+  // Batch-resolve City/State labels for the area itself + every child
+  // card in a single Mapbox/cache pass.
+  const coordsToResolve: { lat: number; lng: number }[] = [];
+  if (area?.metadata?.lat != null && area.metadata.lng != null) {
+    coordsToResolve.push({ lat: area.metadata.lat, lng: area.metadata.lng });
+  }
+  for (const child of area?.children ?? []) {
+    if (child.metadata?.lat != null && child.metadata.lng != null) {
+      coordsToResolve.push({
+        lat: child.metadata.lat,
+        lng: child.metadata.lng,
+      });
+    }
+  }
+  const locations = await resolveLocations(coordsToResolve);
+  function locationFor(
+    meta: { lat?: number | null; lng?: number | null } | null | undefined,
+  ) {
+    if (meta?.lat == null || meta?.lng == null) return undefined;
+    return locations.get(locationKey(meta.lat, meta.lng));
+  }
+
   return (
     <main className="min-h-screen bg-stone-50 dark:bg-stone-950 p-8">
       <div className="max-w-4xl mx-auto">
@@ -212,13 +235,19 @@ export default async function AreaPage({
               {area.totalClimbs > 0
                 ? `${area.totalClimbs} climb${area.totalClimbs === 1 ? "" : "s"}`
                 : "No climbs recorded"}
-              {area.metadata?.lat != null && area.metadata?.lng != null && (
-                <>
-                  {" · "}
-                  {area.metadata.lat.toFixed(4)},{" "}
-                  {area.metadata.lng.toFixed(4)}
-                </>
-              )}
+              {(() => {
+                const loc = locationFor(area.metadata);
+                const hasCoords =
+                  area.metadata?.lat != null && area.metadata?.lng != null;
+                if (!loc && !hasCoords) return null;
+                return (
+                  <>
+                    {" · "}
+                    {loc ??
+                      `${area.metadata!.lat!.toFixed(4)}, ${area.metadata!.lng!.toFixed(4)}`}
+                  </>
+                );
+              })()}
             </p>
 
             {area.children.length > 0 && (
@@ -228,7 +257,11 @@ export default async function AreaPage({
                 </h2>
                 <div className="space-y-4">
                   {sortChildren(area.children).map((child) => (
-                    <AreaCard key={child.uuid} area={child} />
+                    <AreaCard
+                      key={child.uuid}
+                      area={child}
+                      location={locationFor(child.metadata)}
+                    />
                   ))}
                 </div>
               </section>
