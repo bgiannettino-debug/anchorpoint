@@ -3,6 +3,7 @@ import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { NearMeButton } from "@/components/near-me-button";
 import { BookmarksPreview } from "@/components/bookmarks-preview";
+import { TicksPreview } from "@/components/ticks-preview";
 import { haversineMiles } from "@/lib/geo";
 import { gql } from "@apollo/client";
 
@@ -199,6 +200,7 @@ export default async function Home({
         ) : query === "" ? (
           <>
             <BookmarksPreview />
+            <TicksPreview />
             <p className="text-stone-500 dark:text-stone-400 text-center py-12">
               Search for an area to get started. Try{" "}
             <Link

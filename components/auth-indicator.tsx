@@ -20,14 +20,28 @@ export async function AuthIndicator() {
   }
 
   return (
-    <form action={signOut} className="flex items-center gap-3 text-sm">
-      <span className="text-stone-600 dark:text-stone-400">{user.email}</span>
-      <button
-        type="submit"
+    <div className="flex items-center gap-3 text-sm">
+      <Link
+        href="/bookmarks"
         className="text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
       >
-        Sign out
-      </button>
-    </form>
+        Bookmarks
+      </Link>
+      <Link
+        href="/ticks"
+        className="text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+      >
+        Ticks
+      </Link>
+      <span className="text-stone-600 dark:text-stone-400">{user.email}</span>
+      <form action={signOut}>
+        <button
+          type="submit"
+          className="text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+        >
+          Sign out
+        </button>
+      </form>
+    </div>
   );
 }
