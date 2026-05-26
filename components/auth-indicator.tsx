@@ -12,7 +12,7 @@ export async function AuthIndicator() {
     return (
       <Link
         href="/login"
-        className="text-sm text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+        className="ml-auto text-sm text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
       >
         Sign in
       </Link>
@@ -20,30 +20,32 @@ export async function AuthIndicator() {
   }
 
   return (
-    <div className="flex items-center gap-3 text-sm">
-      <Link
-        href="/bookmarks"
-        className="text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
-      >
-        Bookmarks
-      </Link>
-      <Link
-        href="/ticks"
-        className="text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
-      >
-        Ticks
-      </Link>
-      <span className="hidden sm:inline text-stone-600 dark:text-stone-400 truncate max-w-[18ch]">
+    <>
+      <span className="hidden sm:inline text-sm text-stone-600 dark:text-stone-400 truncate max-w-[24ch]">
         {user.email}
       </span>
-      <form action={signOut}>
-        <button
-          type="submit"
+      <div className="ml-auto flex items-center gap-3 text-sm">
+        <Link
+          href="/bookmarks"
           className="text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
         >
-          Sign out
-        </button>
-      </form>
-    </div>
+          Bookmarks
+        </Link>
+        <Link
+          href="/ticks"
+          className="text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+        >
+          Ticks
+        </Link>
+        <form action={signOut}>
+          <button
+            type="submit"
+            className="text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+          >
+            Sign out
+          </button>
+        </form>
+      </div>
+    </>
   );
 }
