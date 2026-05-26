@@ -67,7 +67,10 @@ function TickFormSignedIn(props: Props) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState(todayLocalDate());
   const [style, setStyle] = useState<TickStyle>("redpoint");
-  const [laps, setLaps] = useState(1);
+  // Keep laps as a string so the user can clear the field while typing
+  // a new number — normalizing on every keystroke snaps it back to "1"
+  // and makes the input feel broken.
+  const [lapsText, setLapsText] = useState("1");
   const [notes, setNotes] = useState("");
   const [suggestedGrade, setSuggestedGrade] = useState("");
   const [saving, setSaving] = useState(false);
@@ -88,7 +91,7 @@ function TickFormSignedIn(props: Props) {
   function reset() {
     setDate(todayLocalDate());
     setStyle("redpoint");
-    setLaps(1);
+    setLapsText("1");
     setNotes("");
     setSuggestedGrade("");
     setError(null);
@@ -98,6 +101,8 @@ function TickFormSignedIn(props: Props) {
     e.preventDefault();
     setSaving(true);
     setError(null);
+    const parsedLaps = parseInt(lapsText, 10);
+    const laps = Number.isFinite(parsedLaps) && parsedLaps >= 1 ? parsedLaps : 1;
     const payload: NewTickInput = {
       climbUuid: props.climbUuid,
       climbName: props.climbName,
@@ -173,10 +178,14 @@ function TickFormSignedIn(props: Props) {
             type="number"
             min={1}
             required
-            value={laps}
-            onChange={(e) =>
-              setLaps(Math.max(1, parseInt(e.target.value, 10) || 1))
-            }
+            value={lapsText}
+            onChange={(e) => setLapsText(e.target.value)}
+            onBlur={() => {
+              // Snap empty / invalid / sub-1 back to "1" only after the
+              // user leaves the field, so typing isn't disrupted.
+              const n = parseInt(lapsText, 10);
+              if (!Number.isFinite(n) || n < 1) setLapsText("1");
+            }}
             disabled={saving}
             className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent disabled:opacity-60"
           />
