@@ -169,7 +169,7 @@ export default async function Home({
         <form
           action=""
           method="GET"
-          className="flex gap-2 mb-8"
+          className="flex flex-col sm:flex-row gap-2 mb-8"
           role="search"
         >
           <input
@@ -179,11 +179,11 @@ export default async function Home({
             placeholder="Search for a climbing area (e.g. Smith Rock, Joshua Tree)"
             aria-label="Search climbing areas"
             autoFocus
-            className="flex-1 px-4 py-3 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent"
+            className="flex-1 min-w-0 px-4 py-3 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent"
           />
           <button
             type="submit"
-            className="px-6 py-3 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors"
+            className="w-full sm:w-auto px-6 py-3 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors"
           >
             Search
           </button>
