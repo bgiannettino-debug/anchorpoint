@@ -32,7 +32,7 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen bg-stone-50 dark:bg-stone-950 p-8">
-      <div className="max-w-md mx-auto">
+      <div className="max-w-sm mx-auto">
         <Link
           href="/"
           className="text-sm text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100"
