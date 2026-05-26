@@ -30,7 +30,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <header className="border-b border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-950">
-          <div className="max-w-4xl mx-auto px-4 sm:px-8 py-3 flex items-center justify-end">
+          <div className="max-w-4xl mx-auto px-4 sm:px-8 py-3 flex items-center gap-3">
             <AuthIndicator />
           </div>
         </header>
