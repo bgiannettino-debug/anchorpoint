@@ -110,18 +110,21 @@ export default function LoginPage() {
               autoFocus
               inputMode="numeric"
               autoComplete="one-time-code"
-              pattern="\d{6}"
-              maxLength={6}
+              // Supabase OTP length is configurable (default 6, can be
+              // raised to 8 or 10). Accept the whole range so the UI
+              // doesn't reject a perfectly valid code.
+              pattern="\d{6,10}"
+              maxLength={10}
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              placeholder="123456"
+              placeholder="Enter the code"
               aria-label="Sign-in code"
               disabled={busy}
-              className="w-full px-4 py-3 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent disabled:opacity-60 text-center tracking-[0.4em] text-lg font-mono"
+              className="w-full px-4 py-3 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent disabled:opacity-60 text-center tracking-[0.3em] text-lg font-mono"
             />
             <button
               type="submit"
-              disabled={busy || code.length !== 6}
+              disabled={busy || code.length < 6}
               className="w-full px-6 py-3 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors disabled:opacity-60 disabled:cursor-wait"
             >
               {busy ? "Verifying…" : "Verify code"}
