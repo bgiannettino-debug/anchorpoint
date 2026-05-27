@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { NearMeButton } from "@/components/near-me-button";
+import { NearMap } from "@/components/near-map";
 import { BookmarksPreview } from "@/components/bookmarks-preview";
 import { TicksPreview } from "@/components/ticks-preview";
 import { haversineMiles } from "@/lib/geo";
@@ -223,6 +224,25 @@ export default async function Home({
             Search
           </button>
         </form>
+
+        {nearMode && nearResults.length > 0 && (
+          <NearMap
+            userLat={userLat!}
+            userLng={userLng!}
+            crags={nearResults
+              .slice(0, shown)
+              .filter(
+                (c) =>
+                  c.metadata?.lat != null && c.metadata?.lng != null,
+              )
+              .map((c) => ({
+                uuid: c.uuid,
+                name: c.area_name,
+                lat: c.metadata!.lat!,
+                lng: c.metadata!.lng!,
+              }))}
+          />
+        )}
 
         <NearMeButton />
 
