@@ -22,14 +22,22 @@ type GetCragsNearResponse = {
   cragsNear: (CragsNearGroup | null)[] | null;
 };
 
-// 50 miles covers a generous driving range for "after-work crag near
-// home" while keeping the result set manageable. Crags within this
-// radius are sorted by true haversine distance from the query point.
-// The API wants meters, so derive that from the displayed miles value
-// to keep the two in sync.
-const NEAR_RADIUS_MILES = 50;
-const NEAR_RADIUS_METERS = Math.round(NEAR_RADIUS_MILES * 1609.344);
+// User-selectable search radius for "Find climbs near me". 50 mi is
+// the default (good for after-work crags); the larger options cover
+// road-trip planning in sparser parts of the country. OpenBeta wants
+// meters, so we convert at query time.
+const NEAR_RADIUS_OPTIONS = [20, 50, 100, 150, 200] as const;
+type NearRadius = (typeof NEAR_RADIUS_OPTIONS)[number];
+const DEFAULT_NEAR_RADIUS: NearRadius = 50;
 const NEAR_RESULT_LIMIT = 20;
+
+function parseRadius(raw: string | undefined): NearRadius {
+  if (!raw) return DEFAULT_NEAR_RADIUS;
+  const n = Number(raw);
+  return (NEAR_RADIUS_OPTIONS as readonly number[]).includes(n)
+    ? (n as NearRadius)
+    : DEFAULT_NEAR_RADIUS;
+}
 
 // Use the area's `aggregate.byGrade` and `totalClimbs` so the counts/grade
 // range are recursive — a parent area like "Smith Rock" reports all 1200+
@@ -94,9 +102,14 @@ type NearCrag = AreaCardData & { distanceMiles: number };
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; lat?: string; lng?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    lat?: string;
+    lng?: string;
+    radius?: string;
+  }>;
 }) {
-  const { q, lat, lng } = await searchParams;
+  const { q, lat, lng, radius } = await searchParams;
   const query = q?.trim() ?? "";
 
   // Geolocation mode wins over search if both happen to be set, since
@@ -105,6 +118,7 @@ export default async function Home({
   const userLat = parseCoord(lat);
   const userLng = parseCoord(lng);
   const nearMode = userLat !== null && userLng !== null;
+  const nearRadius = parseRadius(radius);
 
   let areas: AreaCardData[] = [];
   let nearResults: NearCrag[] = [];
@@ -117,7 +131,7 @@ export default async function Home({
         variables: {
           lat: userLat,
           lng: userLng,
-          max: NEAR_RADIUS_METERS,
+          max: Math.round(nearRadius * 1609.344),
         },
       });
       const groups = result.data?.cragsNear ?? [];
@@ -209,14 +223,22 @@ export default async function Home({
         <NearMeButton />
 
         {nearMode ? (
-          apiError ? (
-            <ApiErrorBlock />
-          ) : (
-            <NearResults
-              results={nearResults}
-              locationFor={locationFor}
+          <>
+            <RadiusSelector
+              lat={userLat!}
+              lng={userLng!}
+              current={nearRadius}
             />
-          )
+            {apiError ? (
+              <ApiErrorBlock />
+            ) : (
+              <NearResults
+                results={nearResults}
+                radius={nearRadius}
+                locationFor={locationFor}
+              />
+            )}
+          </>
         ) : query === "" ? (
           <>
             <BookmarksPreview />
@@ -287,6 +309,46 @@ function parseCoord(raw: string | undefined): number | null {
   return n;
 }
 
+function RadiusSelector({
+  lat,
+  lng,
+  current,
+}: {
+  lat: number;
+  lng: number;
+  current: NearRadius;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Search radius"
+      className="flex flex-wrap items-center gap-2 mb-6"
+    >
+      <span className="text-sm text-stone-600 dark:text-stone-400 mr-1">
+        Within
+      </span>
+      {NEAR_RADIUS_OPTIONS.map((r) => {
+        const isActive = r === current;
+        return (
+          <Link
+            key={r}
+            href={`/?lat=${lat}&lng=${lng}&radius=${r}`}
+            role="radio"
+            aria-checked={isActive}
+            className={
+              isActive
+                ? "px-3 py-1 rounded-full text-sm bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium"
+                : "px-3 py-1 rounded-full text-sm border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+            }
+          >
+            {r} mi
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 function ApiErrorBlock() {
   return (
     <div className="bg-white dark:bg-stone-900 rounded-lg p-6 border border-stone-200 dark:border-stone-800">
@@ -303,9 +365,11 @@ function ApiErrorBlock() {
 
 function NearResults({
   results,
+  radius,
   locationFor,
 }: {
   results: NearCrag[];
+  radius: NearRadius;
   locationFor: (
     meta: { lat?: number | null; lng?: number | null } | null | undefined,
   ) => string | undefined;
@@ -313,8 +377,8 @@ function NearResults({
   if (results.length === 0) {
     return (
       <p className="text-stone-500 dark:text-stone-400">
-        No climbing areas within {NEAR_RADIUS_MILES} miles of you. Try
-        searching by name.
+        No climbing areas within {radius} miles of you. Try a larger
+        radius or search by name.
       </p>
     );
   }
@@ -322,7 +386,7 @@ function NearResults({
     <>
       <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
         Nearest {results.length} climbing area
-        {results.length === 1 ? "" : "s"}
+        {results.length === 1 ? "" : "s"} within {radius} mi
       </h2>
       <div className="space-y-4">
         {results.map((c) => (
