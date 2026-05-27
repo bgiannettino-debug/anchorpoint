@@ -85,6 +85,10 @@ export function NearMap({ userLat, userLng, crags }: Props) {
     }
 
     map.on("load", () => {
+      // Force a resize after the style + first frame are ready. This
+      // catches the case where Mapbox sampled the container size before
+      // CSS finished applying (canvas stuck at the 300px default).
+      map.resize();
       if (crags.length === 0) return;
       const bounds = new mapboxgl.LngLatBounds();
       if (hasUserCoords) bounds.extend([userLng, userLat]);
@@ -94,7 +98,17 @@ export function NearMap({ userLat, userLng, crags }: Props) {
       }
     });
 
+    // Keep the canvas in sync whenever the container's size changes —
+    // expand/collapse animations, viewport rotations, dev-tools open,
+    // etc. This is the most reliable way to avoid the "canvas is
+    // 300x150 default size" symptom we hit on first try.
+    const ro = new ResizeObserver(() => {
+      map.resize();
+    });
+    ro.observe(containerRef.current);
+
     return () => {
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
     };
