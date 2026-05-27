@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 type Status = "idle" | "locating" | "error";
@@ -10,6 +10,11 @@ export function NearMeButton() {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const safetyTimer = useRef<number | null>(null);
+  // isPending stays true from router.push() until the new page renders.
+  // We OR it with the locating status so the button keeps reading
+  // "Locating…" through the whole geolocate-then-navigate sequence
+  // instead of flashing back to "Find climbs near me" in the middle.
+  const [isPending, startTransition] = useTransition();
 
   // Clear any pending safety timer on unmount so we don't setState on
   // an unmounted component if the user navigates away mid-request.
@@ -67,9 +72,14 @@ export function NearMeButton() {
       (pos) => {
         if (safetyTimer.current != null) clearTimeout(safetyTimer.current);
         const { latitude, longitude } = pos.coords;
-        router.push(
-          `/?lat=${latitude.toFixed(5)}&lng=${longitude.toFixed(5)}`,
-        );
+        // Reset status now that geolocate succeeded; isPending will
+        // keep the button looking busy through the navigation.
+        setStatus("idle");
+        startTransition(() => {
+          router.push(
+            `/?lat=${latitude.toFixed(5)}&lng=${longitude.toFixed(5)}`,
+          );
+        });
       },
       (err) => {
         if (safetyTimer.current != null) clearTimeout(safetyTimer.current);
@@ -87,15 +97,17 @@ export function NearMeButton() {
     );
   }
 
+  const busy = status === "locating" || isPending;
+
   return (
     <div className="mb-8">
       <button
         type="button"
         onClick={handleClick}
-        disabled={status === "locating"}
+        disabled={busy}
         className="text-sm text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100 disabled:opacity-60 disabled:cursor-wait"
       >
-        {status === "locating" ? "Locating…" : "Find climbs near me"}
+        {busy ? "Locating…" : "Find climbs near me"}
       </button>
       {status === "error" && error && (
         <p className="text-sm text-red-700 dark:text-red-400 mt-2">{error}</p>
