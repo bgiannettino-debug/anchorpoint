@@ -225,24 +225,21 @@ export default async function Home({
           </button>
         </form>
 
-        {nearMode && nearResults.length > 0 && (
-          <NearMap
-            userLat={userLat!}
-            userLng={userLng!}
-            crags={nearResults
-              .slice(0, shown)
-              .filter(
-                (c) =>
-                  c.metadata?.lat != null && c.metadata?.lng != null,
-              )
-              .map((c) => ({
-                uuid: c.uuid,
-                name: c.area_name,
-                lat: c.metadata!.lat!,
-                lng: c.metadata!.lng!,
-              }))}
-          />
-        )}
+        <NearMap
+          userLat={nearMode ? userLat : null}
+          userLng={nearMode ? userLng : null}
+          crags={nearResults
+            .slice(0, shown)
+            .filter(
+              (c) => c.metadata?.lat != null && c.metadata?.lng != null,
+            )
+            .map((c) => ({
+              uuid: c.uuid,
+              name: c.area_name,
+              lat: c.metadata!.lat!,
+              lng: c.metadata!.lng!,
+            }))}
+        />
 
         <NearMeButton />
 
