@@ -138,11 +138,12 @@ export default async function AreaPage({
   searchParams,
 }: {
   params: Promise<{ uuid: string }>;
-  searchParams: Promise<{ route?: string }>;
+  searchParams: Promise<{ route?: string; type?: string }>;
 }) {
   const { uuid } = await params;
-  const { route } = await searchParams;
+  const { route, type } = await searchParams;
   const routeFilter = route?.trim() ?? "";
+  const typeFilter = parseTypeFilter(type);
 
   let area: AreaDetail | null = null;
   let apiError = false;
@@ -272,6 +273,7 @@ export default async function AreaPage({
                 uuid={uuid}
                 climbs={area.climbs}
                 filter={routeFilter}
+                typeFilter={typeFilter}
               />
             )}
 
@@ -330,22 +332,69 @@ function sortChildren(children: AreaCardData[]): AreaCardData[] {
   });
 }
 
+// Order matches formatClimbType's display order so chips read in the
+// same sequence climbers see on the rows themselves.
+const TYPE_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: "sport", label: "Sport" },
+  { value: "trad", label: "Trad" },
+  { value: "bouldering", label: "Boulder" },
+  { value: "tr", label: "TR" },
+  { value: "mixed", label: "Mixed" },
+  { value: "ice", label: "Ice" },
+  { value: "aid", label: "Aid" },
+  { value: "alpine", label: "Alpine" },
+  { value: "deepwatersolo", label: "DWS" },
+];
+const KNOWN_TYPES = new Set(TYPE_FILTER_OPTIONS.map((o) => o.value));
+
+function parseTypeFilter(raw: string | undefined): Set<string> {
+  if (!raw) return new Set();
+  const parts = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => KNOWN_TYPES.has(s));
+  return new Set(parts);
+}
+
+function climbMatchesTypeFilter(climb: Climb, active: Set<string>): boolean {
+  if (active.size === 0) return true;
+  const t = climb.type;
+  if (!t) return false;
+  // OR across selected types — a climb shows if ANY of its types
+  // matches one of the picked chips.
+  if (active.has("sport") && t.sport) return true;
+  if (active.has("trad") && t.trad) return true;
+  if (active.has("bouldering") && t.bouldering) return true;
+  if (active.has("tr") && t.tr) return true;
+  if (active.has("mixed") && t.mixed) return true;
+  if (active.has("ice") && t.ice) return true;
+  if (active.has("aid") && t.aid) return true;
+  if (active.has("alpine") && t.alpine) return true;
+  if (active.has("deepwatersolo") && t.deepwatersolo) return true;
+  return false;
+}
+
 function ClimbsSection({
   uuid,
   climbs,
   filter,
+  typeFilter,
 }: {
   uuid: string;
   climbs: Climb[];
   filter: string;
+  typeFilter: Set<string>;
 }) {
-  const matches = filter
-    ? climbs.filter((c) =>
-        c.name.toLowerCase().includes(filter.toLowerCase()),
-      )
-    : climbs;
-  const heading = filter
-    ? `Climbs (${matches.length} of ${climbs.length} matching "${filter}")`
+  const matches = climbs.filter((c) => {
+    if (filter && !c.name.toLowerCase().includes(filter.toLowerCase())) {
+      return false;
+    }
+    return climbMatchesTypeFilter(c, typeFilter);
+  });
+
+  const hasAnyFilter = filter !== "" || typeFilter.size > 0;
+  const heading = hasAnyFilter
+    ? `Climbs (${matches.length} of ${climbs.length})`
     : `Climbs (${climbs.length})`;
 
   return (
@@ -353,7 +402,22 @@ function ClimbsSection({
       <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
         {heading}
       </h2>
+      <TypeFilter
+        uuid={uuid}
+        routeFilter={filter}
+        active={typeFilter}
+      />
       <form action="" method="GET" role="search" className="mb-4">
+        {/* Carry the current type selection through a route-name
+            submission so applying both filters works without manual
+            URL-merging. */}
+        {typeFilter.size > 0 && (
+          <input
+            type="hidden"
+            name="type"
+            value={Array.from(typeFilter).join(",")}
+          />
+        )}
         <input
           type="search"
           name="route"
@@ -365,7 +429,7 @@ function ClimbsSection({
       </form>
       {matches.length === 0 ? (
         <p className="text-stone-500 dark:text-stone-400">
-          No climbs match &quot;{filter}&quot;.{" "}
+          No climbs match the current filters.{" "}
           <Link
             href={`/area/${uuid}`}
             className="underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
@@ -381,6 +445,55 @@ function ClimbsSection({
         </ul>
       )}
     </section>
+  );
+}
+
+function TypeFilter({
+  uuid,
+  routeFilter,
+  active,
+}: {
+  uuid: string;
+  routeFilter: string;
+  active: Set<string>;
+}) {
+  function hrefFor(toggle: string): string {
+    // Toggle this chip's value in/out of the active set, then rebuild
+    // the URL preserving any existing route-name filter.
+    const next = new Set(active);
+    if (next.has(toggle)) next.delete(toggle);
+    else next.add(toggle);
+    const params = new URLSearchParams();
+    if (routeFilter) params.set("route", routeFilter);
+    if (next.size > 0) params.set("type", Array.from(next).join(","));
+    const qs = params.toString();
+    return `/area/${uuid}${qs ? `?${qs}` : ""}`;
+  }
+
+  return (
+    <div
+      role="group"
+      aria-label="Filter routes by type"
+      className="flex flex-wrap gap-2 mb-3"
+    >
+      {TYPE_FILTER_OPTIONS.map((opt) => {
+        const isActive = active.has(opt.value);
+        return (
+          <Link
+            key={opt.value}
+            href={hrefFor(opt.value)}
+            aria-pressed={isActive}
+            className={
+              isActive
+                ? "px-3 py-1 rounded-full text-sm bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium"
+                : "px-3 py-1 rounded-full text-sm border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+            }
+          >
+            {opt.label}
+          </Link>
+        );
+      })}
+    </div>
   );
 }
 
