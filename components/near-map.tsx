@@ -13,13 +13,19 @@ export type NearMapCrag = {
 };
 
 type Props = {
-  userLat: number;
-  userLng: number;
+  userLat: number | null;
+  userLng: number | null;
   crags: NearMapCrag[];
 };
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 if (TOKEN) mapboxgl.accessToken = TOKEN;
+
+// Continental US fallback view shown before the user clicks "Find
+// climbs near me" — wide enough to cover the lower 48 at zoom 3.
+const DEFAULT_CENTER: [number, number] = [-98.35, 39.5];
+const DEFAULT_ZOOM = 3;
+const NEAR_ZOOM = 8;
 
 export function NearMap({ userLat, userLng, crags }: Props) {
   const router = useRouter();
@@ -27,32 +33,42 @@ export function NearMap({ userLat, userLng, crags }: Props) {
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const [expanded, setExpanded] = useState(false);
 
-  // Build the map once on mount and re-fit bounds whenever the input
-  // points change. The full crags array is treated as a dependency so
-  // re-clicks of "Find climbs near me" from a different location update
-  // pins and view correctly without remounting the underlying canvas.
+  const hasUserCoords = userLat !== null && userLng !== null;
+
   useEffect(() => {
-    if (!containerRef.current || !TOKEN) return;
+    if (!containerRef.current) return;
+    if (!TOKEN) {
+      console.warn(
+        "[near-map] NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN is not set in the build. Map won't render. Add the env var to Vercel and redeploy.",
+      );
+      return;
+    }
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: "mapbox://styles/mapbox/outdoors-v12",
-      center: [userLng, userLat],
-      zoom: 8,
+      center: hasUserCoords ? [userLng, userLat] : DEFAULT_CENTER,
+      zoom: hasUserCoords ? NEAR_ZOOM : DEFAULT_ZOOM,
       attributionControl: false,
       cooperativeGestures: false,
-      // Start with no interactivity. The collapsed map is a preview;
-      // we toggle handlers below when expanded changes.
+      // Start with no interactivity; toggled on when the user expands.
       interactive: false,
     });
     mapRef.current = map;
 
-    // User location: a blue marker with no popup/click.
-    new mapboxgl.Marker({ color: "#1e3a8a" })
-      .setLngLat([userLng, userLat])
-      .addTo(map);
+    // Surface anything Mapbox would normally swallow — bad token, tile
+    // 401s, style fetch failures, etc. Without this, those usually
+    // appear nowhere and the map silently stays blank.
+    map.on("error", (e) => {
+      console.error("[near-map] mapbox error:", e?.error ?? e);
+    });
 
-    // Crag pins: red, click-to-navigate to the area page.
+    if (hasUserCoords) {
+      new mapboxgl.Marker({ color: "#1e3a8a" })
+        .setLngLat([userLng, userLat])
+        .addTo(map);
+    }
+
     for (const c of crags) {
       const el = document.createElement("button");
       el.type = "button";
@@ -68,12 +84,10 @@ export function NearMap({ userLat, userLng, crags }: Props) {
         .addTo(map);
     }
 
-    // Fit the view to user + every pin so the first frame already
-    // shows something useful. maxZoom keeps very tight clusters from
-    // zooming in past street level.
     map.on("load", () => {
+      if (crags.length === 0) return;
       const bounds = new mapboxgl.LngLatBounds();
-      bounds.extend([userLng, userLat]);
+      if (hasUserCoords) bounds.extend([userLng, userLat]);
       for (const c of crags) bounds.extend([c.lng, c.lat]);
       if (!bounds.isEmpty()) {
         map.fitBounds(bounds, { padding: 40, maxZoom: 11, duration: 0 });
@@ -84,10 +98,8 @@ export function NearMap({ userLat, userLng, crags }: Props) {
       map.remove();
       mapRef.current = null;
     };
-  }, [userLat, userLng, crags, router]);
+  }, [userLat, userLng, crags, router, hasUserCoords]);
 
-  // Toggle interactivity when the map expands or collapses, and call
-  // resize() so the canvas redraws to fit the new container height.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -97,17 +109,9 @@ export function NearMap({ userLat, userLng, crags }: Props) {
     map.boxZoom[action]();
     map.doubleClickZoom[action]();
     map.touchZoomRotate[action]();
-    // The CSS transition is 300ms; resize after it settles so the
-    // canvas matches the final size rather than mid-transition.
     const t = window.setTimeout(() => map.resize(), 320);
     return () => window.clearTimeout(t);
   }, [expanded]);
-
-  if (!TOKEN) {
-    // No token available — silently render nothing rather than a
-    // broken map. The rest of the page (list view) still works.
-    return null;
-  }
 
   return (
     <div
@@ -116,7 +120,13 @@ export function NearMap({ userLat, userLng, crags }: Props) {
       }`}
     >
       <div ref={containerRef} className="absolute inset-0" />
-      {expanded ? (
+      {!TOKEN && (
+        <div className="absolute inset-0 flex items-center justify-center bg-stone-100 dark:bg-stone-900 text-sm text-stone-500 dark:text-stone-400 p-4 text-center">
+          Map unavailable — set NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN and
+          redeploy.
+        </div>
+      )}
+      {TOKEN && expanded && (
         <button
           type="button"
           onClick={() => setExpanded(false)}
@@ -124,7 +134,8 @@ export function NearMap({ userLat, userLng, crags }: Props) {
         >
           Collapse map
         </button>
-      ) : (
+      )}
+      {TOKEN && !expanded && (
         <button
           type="button"
           onClick={() => setExpanded(true)}
