@@ -174,7 +174,11 @@ function BookmarkRow({
         type="button"
         onClick={() => void removeBookmark(b.type, b.uuid)}
         aria-label={`Remove ${b.name} from bookmarks`}
-        className="px-4 py-3 text-sm text-stone-500 dark:text-stone-400 hover:text-red-700 dark:hover:text-red-400 transition-colors"
+        // Hidden on mobile: phone users remove via the Save toggle on
+        // the area/climb page instead, where the tap target is bigger
+        // and there's no risk of an accidental remove next to the
+        // row's main Link.
+        className="hidden sm:block px-4 py-3 text-sm text-stone-500 dark:text-stone-400 hover:text-red-700 dark:hover:text-red-400 transition-colors"
       >
         Remove
       </button>
