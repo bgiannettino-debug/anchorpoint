@@ -140,7 +140,12 @@ export function NearMap({ userLat, userLng, crags }: Props) {
           type="button"
           onClick={() => setExpanded(true)}
           aria-label="Expand map"
-          className="absolute inset-0 z-10 cursor-zoom-in"
+          // appearance-none + bg-transparent strip Safari's native
+          // button chrome. Without these, -webkit-appearance: button
+          // gives the overlay an opaque rendering that hides the
+          // map canvas underneath even though background-color is
+          // transparent.
+          className="absolute inset-0 z-10 cursor-zoom-in appearance-none bg-transparent border-0"
         />
       )}
     </div>
