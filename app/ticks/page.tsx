@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import {
   type Tick,
@@ -21,6 +21,11 @@ const STYLE_LABEL: Record<TickStyle, string> = Object.fromEntries(
   TICK_STYLES.map((s) => [s.value, s.label]),
 ) as Record<TickStyle, string>;
 
+// How many ticks to show on first render, and how many more to reveal
+// per "Show more" click. Keep them equal so the user can predict.
+const TICKS_INITIAL_SHOWN = 10;
+const TICKS_PAGE_SIZE = 10;
+
 export default function TicksPage() {
   const auth = useSyncExternalStore(
     subscribeAuth,
@@ -32,6 +37,8 @@ export default function TicksPage() {
     getTicksSnapshot,
     getTicksServerSnapshot,
   );
+  const [shown, setShown] = useState(TICKS_INITIAL_SHOWN);
+  const visible = items.slice(0, shown);
 
   return (
     <main className="min-h-screen bg-stone-50 dark:bg-stone-950 p-8">
@@ -44,7 +51,7 @@ export default function TicksPage() {
         </Link>
 
         <h1 className="text-4xl font-bold text-stone-900 dark:text-stone-100 mt-6 mb-8">
-          Ticks
+          Latest ticks
         </h1>
 
         {auth.status === "loading" ? null : auth.status === "signed-out" ? (
@@ -63,11 +70,28 @@ export default function TicksPage() {
             &ldquo;Log a tick&rdquo; form.
           </p>
         ) : (
-          <ul className="bg-white dark:bg-stone-900 rounded-lg border border-stone-200 dark:border-stone-800 divide-y divide-stone-200 dark:divide-stone-800">
-            {items.map((t) => (
-              <TickRow key={t.id} tick={t} />
-            ))}
-          </ul>
+          <>
+            <ul className="bg-white dark:bg-stone-900 rounded-lg border border-stone-200 dark:border-stone-800 divide-y divide-stone-200 dark:divide-stone-800">
+              {visible.map((t) => (
+                <TickRow key={t.id} tick={t} />
+              ))}
+            </ul>
+            {items.length > shown && (
+              <div className="mt-6 text-center">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShown((s) =>
+                      Math.min(s + TICKS_PAGE_SIZE, items.length),
+                    )
+                  }
+                  className="inline-block px-4 py-2 rounded-lg border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+                >
+                  Show more
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </main>
