@@ -19,8 +19,8 @@ export async function createClient() {
             );
           } catch {
             // setAll called from a Server Component context where cookies
-            // can't be written. The middleware refreshes sessions, so this
-            // is safe to ignore in practice.
+            // can't be written. The root proxy refreshes sessions, so
+            // this is safe to ignore in practice.
           }
         },
       },
