@@ -41,7 +41,7 @@ export function TicksPreview() {
     <section className="mb-8">
       <div className="flex items-baseline justify-between mb-4">
         <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200">
-          Recent ticks
+          Latest {recent.length} tick{recent.length === 1 ? "" : "s"}
         </h2>
         <Link
           href="/ticks"
