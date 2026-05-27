@@ -137,7 +137,7 @@ function TickFormSignedIn(props: Props) {
       </h3>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <label className="block">
+        <label className="block min-w-0">
           <span className="text-sm text-stone-700 dark:text-stone-300">
             Date
           </span>
@@ -151,7 +151,7 @@ function TickFormSignedIn(props: Props) {
           />
         </label>
 
-        <label className="block">
+        <label className="block min-w-0">
           <span className="text-sm text-stone-700 dark:text-stone-300">
             Style
           </span>
@@ -170,7 +170,7 @@ function TickFormSignedIn(props: Props) {
           </select>
         </label>
 
-        <label className="block">
+        <label className="block min-w-0">
           <span className="text-sm text-stone-700 dark:text-stone-300">
             Laps
           </span>
@@ -191,7 +191,7 @@ function TickFormSignedIn(props: Props) {
           />
         </label>
 
-        <label className="block">
+        <label className="block min-w-0">
           <span className="text-sm text-stone-700 dark:text-stone-300">
             Suggested grade{" "}
             <span className="text-xs text-stone-500 dark:text-stone-400">
