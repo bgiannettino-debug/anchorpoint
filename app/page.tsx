@@ -22,14 +22,23 @@ type GetCragsNearResponse = {
   cragsNear: (CragsNearGroup | null)[] | null;
 };
 
-// 50 miles covers a generous driving range for "after-work crag near
-// home" while keeping the result set manageable. Crags within this
-// radius are sorted by true haversine distance from the query point.
-// The API wants meters, so derive that from the displayed miles value
-// to keep the two in sync.
-const NEAR_RADIUS_MILES = 50;
-const NEAR_RADIUS_METERS = Math.round(NEAR_RADIUS_MILES * 1609.344);
-const NEAR_RESULT_LIMIT = 20;
+// Hidden 200-mile sanity cap on the cragsNear query. The user never
+// picks a radius — they just keep clicking "Show more" until they
+// either find what they need or run out of results inside the cap.
+const NEAR_RADIUS_METERS = Math.round(200 * 1609.344);
+// How many cards to display on the first render. "Show more" reveals
+// another NEAR_PAGE_SIZE worth at a time.
+const NEAR_INITIAL_SHOWN = 20;
+const NEAR_PAGE_SIZE = 20;
+// Absolute ceiling on rendered cards so a malformed ?shown=99999
+// can't blow up the page.
+const NEAR_MAX_SHOWN = 200;
+
+function parseShown(raw: string | undefined): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < NEAR_INITIAL_SHOWN) return NEAR_INITIAL_SHOWN;
+  return Math.min(n, NEAR_MAX_SHOWN);
+}
 
 // Use the area's `aggregate.byGrade` and `totalClimbs` so the counts/grade
 // range are recursive — a parent area like "Smith Rock" reports all 1200+
@@ -94,9 +103,14 @@ type NearCrag = AreaCardData & { distanceMiles: number };
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; lat?: string; lng?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    lat?: string;
+    lng?: string;
+    shown?: string;
+  }>;
 }) {
-  const { q, lat, lng } = await searchParams;
+  const { q, lat, lng, shown: shownRaw } = await searchParams;
   const query = q?.trim() ?? "";
 
   // Geolocation mode wins over search if both happen to be set, since
@@ -105,6 +119,7 @@ export default async function Home({
   const userLat = parseCoord(lat);
   const userLng = parseCoord(lng);
   const nearMode = userLat !== null && userLng !== null;
+  const shown = parseShown(shownRaw);
 
   let areas: AreaCardData[] = [];
   let nearResults: NearCrag[] = [];
@@ -139,7 +154,10 @@ export default async function Home({
         }
       }
       all.sort((a, b) => a.distanceMiles - b.distanceMiles);
-      nearResults = all.slice(0, NEAR_RESULT_LIMIT);
+      // Cap the fetched set at NEAR_MAX_SHOWN so the page stays bounded
+      // even if a query point is in a very dense area; we slice further
+      // for display below.
+      nearResults = all.slice(0, NEAR_MAX_SHOWN);
     } catch (err) {
       console.error("OpenBeta cragsNear query failed:", err);
       apiError = true;
@@ -212,10 +230,26 @@ export default async function Home({
           apiError ? (
             <ApiErrorBlock />
           ) : (
-            <NearResults
-              results={nearResults}
-              locationFor={locationFor}
-            />
+            <>
+              <NearResults
+                results={nearResults.slice(0, shown)}
+                locationFor={locationFor}
+              />
+              {nearResults.length > shown && (
+                <div className="mt-6 text-center">
+                  <Link
+                    href={`/?lat=${userLat}&lng=${userLng}&shown=${Math.min(
+                      shown + NEAR_PAGE_SIZE,
+                      nearResults.length,
+                    )}`}
+                    scroll={false}
+                    className="inline-block px-4 py-2 rounded-lg border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+                  >
+                    Show more
+                  </Link>
+                </div>
+              )}
+            </>
           )
         ) : query === "" ? (
           <>
@@ -313,16 +347,14 @@ function NearResults({
   if (results.length === 0) {
     return (
       <p className="text-stone-500 dark:text-stone-400">
-        No climbing areas within {NEAR_RADIUS_MILES} miles of you. Try
-        searching by name.
+        No climbing areas found near you. Try searching by name instead.
       </p>
     );
   }
   return (
     <>
       <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
-        Nearest {results.length} climbing area
-        {results.length === 1 ? "" : "s"}
+        Climbs near you
       </h2>
       <div className="space-y-4">
         {results.map((c) => (
