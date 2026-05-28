@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
+import { cookies } from "next/headers";
 import { NearMeButton } from "@/components/near-me-button";
 import { NearMap } from "@/components/near-map";
-import { AutoLocate } from "@/components/auto-locate";
+import { LocationSync } from "@/components/location-sync";
+import { LOCATION_COOKIE, parseLocationCookie } from "@/lib/geo-consent";
 import { BookmarksPreview } from "@/components/bookmarks-preview";
 import { TicksPreview } from "@/components/ticks-preview";
 import { haversineMiles } from "@/lib/geo";
@@ -119,8 +121,18 @@ export default async function Home({
   // drives the map + the near-me list; a query drives the search-results
   // list and takes precedence for the *content* area below the map. So
   // searching no longer wipes the map — the location stays in the URL.
-  const userLat = parseCoord(lat);
-  const userLng = parseCoord(lng);
+  // URL params win; otherwise fall back to the last-known location
+  // cookie so the map survives a round-trip through a climb/area page
+  // (whose URLs don't carry lat/lng) and a return to "/". Kept as
+  // const so TS narrows them inside `if (hasLocation)` blocks.
+  const urlLat = parseCoord(lat);
+  const urlLng = parseCoord(lng);
+  const cookieLoc =
+    urlLat === null || urlLng === null
+      ? parseLocationCookie((await cookies()).get(LOCATION_COOKIE)?.value)
+      : null;
+  const userLat = urlLat ?? cookieLoc?.lat ?? null;
+  const userLng = urlLng ?? cookieLoc?.lng ?? null;
   const hasLocation = userLat !== null && userLng !== null;
   const shown = parseShown(shownRaw);
 
@@ -241,7 +253,7 @@ export default async function Home({
           </button>
         </form>
 
-        <AutoLocate active={hasLocation} />
+        {hasLocation && <LocationSync lat={userLat} lng={userLng} />}
 
         <NearMap
           userLat={hasLocation ? userLat : null}
