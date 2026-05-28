@@ -146,7 +146,13 @@ export function NearMap({ userLat, userLng, crags }: Props) {
 
   return (
     <div
-      className={`relative mb-8 rounded-lg border border-stone-200 dark:border-stone-800 overflow-hidden transition-[height] duration-300 ${
+      // touch-none keeps the browser out of any pinch/scroll on the
+      // map element. Without it, pinching can trigger the browser's
+      // own page-zoom in parallel with Mapbox's content zoom, leaving
+      // the whole viewport zoomed in with no easy way to recover on
+      // mobile. Mapbox manages its own pan/pinch via JS event
+      // handlers, so the map still works normally.
+      className={`relative mb-8 rounded-lg border border-stone-200 dark:border-stone-800 overflow-hidden touch-none transition-[height] duration-300 ${
         expanded ? "h-[500px]" : "h-60"
       }`}
     >
