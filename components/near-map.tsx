@@ -70,11 +70,18 @@ export function NearMap({ userLat, userLng, crags }: Props) {
     }
 
     for (const c of crags) {
+      // The button is the tap target (32x32 ≈ Apple HIG's 44pt with
+      // some give for the cursor). Visual dot is a smaller span
+      // centered inside so the map doesn't look cluttered.
       const el = document.createElement("button");
       el.type = "button";
       el.setAttribute("aria-label", `Open ${c.name}`);
       el.className =
-        "block w-3 h-3 rounded-full bg-red-600 border-2 border-white shadow cursor-pointer hover:scale-125 transition-transform";
+        "group flex items-center justify-center w-8 h-8 bg-transparent p-0 border-0 appearance-none cursor-pointer";
+      const dot = document.createElement("span");
+      dot.className =
+        "block w-3 h-3 rounded-full bg-red-600 border-2 border-white shadow group-hover:scale-125 transition-transform";
+      el.appendChild(dot);
       el.addEventListener("click", (ev) => {
         ev.stopPropagation();
         router.push(`/area/${c.uuid}`);
