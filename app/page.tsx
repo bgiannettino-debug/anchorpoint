@@ -3,6 +3,7 @@ import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { NearMeButton } from "@/components/near-me-button";
 import { NearMap } from "@/components/near-map";
+import { AutoLocate } from "@/components/auto-locate";
 import { BookmarksPreview } from "@/components/bookmarks-preview";
 import { TicksPreview } from "@/components/ticks-preview";
 import { haversineMiles } from "@/lib/geo";
@@ -224,6 +225,8 @@ export default async function Home({
             Search
           </button>
         </form>
+
+        <AutoLocate active={nearMode} />
 
         <NearMap
           userLat={nearMode ? userLat : null}
