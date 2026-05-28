@@ -228,8 +228,10 @@ export default async function Home({
         <NearMap
           userLat={nearMode ? userLat : null}
           userLng={nearMode ? userLng : null}
+          // Map shows ALL pins in the radius (up to NEAR_MAX_SHOWN),
+          // not just the paginated card slice — so zooming out reveals
+          // the farther crags rather than empty rock.
           crags={nearResults
-            .slice(0, shown)
             .filter(
               (c) => c.metadata?.lat != null && c.metadata?.lng != null,
             )

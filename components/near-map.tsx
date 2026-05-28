@@ -26,6 +26,11 @@ if (TOKEN) mapboxgl.accessToken = TOKEN;
 const DEFAULT_CENTER: [number, number] = [-98.35, 39.5];
 const DEFAULT_ZOOM = 3;
 const NEAR_ZOOM = 8;
+// Number of closest pins used to compute the initial fitBounds. We
+// still RENDER all incoming crags so zooming out reveals more — but
+// fitting bounds to all 200 would zoom the user out to a useless wide
+// view on first load.
+const INITIAL_BOUNDS_LIMIT = 20;
 
 export function NearMap({ userLat, userLng, crags }: Props) {
   const router = useRouter();
@@ -99,7 +104,12 @@ export function NearMap({ userLat, userLng, crags }: Props) {
       if (crags.length === 0) return;
       const bounds = new mapboxgl.LngLatBounds();
       if (hasUserCoords) bounds.extend([userLng, userLat]);
-      for (const c of crags) bounds.extend([c.lng, c.lat]);
+      // Fit to the closest INITIAL_BOUNDS_LIMIT crags only — the
+      // parent passes the full radius set so zooming out reveals more
+      // pins, but the first frame should be tight on the user.
+      for (const c of crags.slice(0, INITIAL_BOUNDS_LIMIT)) {
+        bounds.extend([c.lng, c.lat]);
+      }
       if (!bounds.isEmpty()) {
         map.fitBounds(bounds, { padding: 40, maxZoom: 11, duration: 0 });
       }
