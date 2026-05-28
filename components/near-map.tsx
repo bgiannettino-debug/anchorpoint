@@ -129,11 +129,17 @@ export function NearMap({ userLat, userLng, crags }: Props) {
 
   return (
     <div
+      // containerRef goes on the rounded box itself, not an inner
+      // <div absolute inset-0>. Mapbox calls _resize() reading
+      // container.clientHeight and adds the .mapboxgl-map class to
+      // this element, which can override a position:absolute child and
+      // collapse it to 0 height. Putting Mapbox on the box that
+      // already has an explicit h-60 / h-[500px] avoids that entirely.
+      ref={containerRef}
       className={`relative mb-8 rounded-lg border border-stone-200 dark:border-stone-800 overflow-hidden transition-[height] duration-300 ${
         expanded ? "h-[500px]" : "h-60"
       }`}
     >
-      <div ref={containerRef} className="absolute inset-0" />
       {!TOKEN && (
         <div className="absolute inset-0 flex items-center justify-center bg-stone-100 dark:bg-stone-900 text-sm text-stone-500 dark:text-stone-400 p-4 text-center">
           Map unavailable — set NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN and
