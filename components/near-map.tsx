@@ -1,9 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
+
+// Escape user-facing names before injecting into popup HTML — OpenBeta
+// climb/area names are free text and could contain <, &, quotes.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 export type NearMapCrag = {
   uuid: string;
@@ -33,7 +42,6 @@ const NEAR_ZOOM = 8;
 const INITIAL_BOUNDS_LIMIT = 20;
 
 export function NearMap({ userLat, userLng, crags }: Props) {
-  const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -95,19 +103,35 @@ export function NearMap({ userLat, userLng, crags }: Props) {
       // centered inside so the map doesn't look cluttered.
       const el = document.createElement("button");
       el.type = "button";
-      el.setAttribute("aria-label", `Open ${c.name}`);
+      el.setAttribute("aria-label", `Show ${c.name}`);
       el.className =
         "group flex items-center justify-center w-8 h-8 bg-transparent p-0 border-0 appearance-none cursor-pointer";
       const dot = document.createElement("span");
       dot.className =
         "block w-3 h-3 rounded-full bg-red-600 border-2 border-white shadow group-hover:scale-125 transition-transform";
       el.appendChild(dot);
-      el.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        router.push(`/area/${c.uuid}`);
-      });
+
+      // Tap/click opens a popup with the area name + a link, so the
+      // user can see which crag a pin is before navigating. Works on
+      // mobile (no hover) and desktop alike. The link is a plain
+      // anchor — a full navigation off the map is fine for a
+      // deliberate "take me there" action, and it works offline via
+      // the service-worker page cache.
+      const popup = new mapboxgl.Popup({
+        offset: 16,
+        closeButton: false,
+        closeOnClick: true,
+        maxWidth: "220px",
+      }).setHTML(
+        `<div style="font-size:13px;line-height:1.45">` +
+          `<div style="font-weight:600;color:#1c1917">${escapeHtml(c.name)}</div>` +
+          `<a href="/area/${c.uuid}" style="display:inline-block;margin-top:2px;color:#dc2626;font-weight:500;text-decoration:none">View area &rarr;</a>` +
+          `</div>`,
+      );
+
       new mapboxgl.Marker({ element: el })
         .setLngLat([c.lng, c.lat])
+        .setPopup(popup)
         .addTo(map);
     }
 
@@ -144,7 +168,7 @@ export function NearMap({ userLat, userLng, crags }: Props) {
       map.remove();
       mapRef.current = null;
     };
-  }, [userLat, userLng, crags, router, hasUserCoords]);
+  }, [userLat, userLng, crags, hasUserCoords]);
 
   useEffect(() => {
     const map = mapRef.current;
