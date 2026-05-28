@@ -229,6 +229,9 @@ export default async function AreaPage({
                   type="area"
                   uuid={area.uuid}
                   name={area.area_name}
+                  // Full area payload — written to IndexedDB on save so
+                  // the page can be rebuilt offline from this snapshot.
+                  snapshot={area}
                 />
               </div>
             </div>

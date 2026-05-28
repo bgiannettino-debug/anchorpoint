@@ -239,6 +239,9 @@ export default async function ClimbPage({
             // store area UUIDs in the chain. Used to nest the climb
             // under the closest bookmarked ancestor on /bookmarks.
             ancestorUuids={climb.ancestors.slice(0, -1)}
+            // Full climb payload — written to IndexedDB on save so
+            // the page can be rebuilt offline from this snapshot.
+            snapshot={climb}
           />
         </div>
         <div className="mt-3">
