@@ -68,6 +68,21 @@ export function NearMap({ userLat, userLng, crags }: Props) {
       console.error("[near-map] mapbox error:", e?.error ?? e);
     });
 
+    // Built-in "where am I right now" button. Separate from the static
+    // blue marker above (which marks the query origin) — tapping this
+    // starts continuous watchPosition tracking with an accuracy halo
+    // and heading arrow, so a user driving to the trailhead can see
+    // their live position relative to the crag pins.
+    map.addControl(
+      new mapboxgl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true },
+        trackUserLocation: true,
+        showUserHeading: true,
+        showAccuracyCircle: true,
+      }),
+      "top-left",
+    );
+
     if (hasUserCoords) {
       new mapboxgl.Marker({ color: "#1e3a8a" })
         .setLngLat([userLng, userLat])
