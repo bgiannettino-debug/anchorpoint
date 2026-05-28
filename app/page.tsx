@@ -240,6 +240,7 @@ export default async function Home({
               name: c.area_name,
               lat: c.metadata!.lat!,
               lng: c.metadata!.lng!,
+              climbs: c.totalClimbs,
             }))}
         />
 
