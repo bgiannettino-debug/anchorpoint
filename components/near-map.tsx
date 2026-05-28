@@ -19,6 +19,8 @@ export type NearMapCrag = {
   name: string;
   lat: number;
   lng: number;
+  // Recursive total (matches the count shown on the area cards).
+  climbs: number;
 };
 
 type Props = {
@@ -124,7 +126,9 @@ export function NearMap({ userLat, userLng, crags }: Props) {
         maxWidth: "220px",
       }).setHTML(
         `<div style="font-size:13px;line-height:1.45">` +
-          `<div style="font-weight:600;color:#1c1917">${escapeHtml(c.name)}</div>` +
+          `<div style="font-weight:600;color:#1c1917">${escapeHtml(c.name)}${
+            c.climbs > 0 ? ` (${c.climbs})` : ""
+          }</div>` +
           `<a href="/area/${c.uuid}" style="display:inline-block;margin-top:2px;color:#dc2626;font-weight:500;text-decoration:none">View area &rarr;</a>` +
           `</div>`,
       );
