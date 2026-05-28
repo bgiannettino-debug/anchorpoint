@@ -115,19 +115,23 @@ export default async function Home({
   const { q, lat, lng, shown: shownRaw } = await searchParams;
   const query = q?.trim() ?? "";
 
-  // Geolocation mode wins over search if both happen to be set, since
-  // lat/lng comes from the NearMeButton flow (explicit intent) while q
-  // could be a stale URL.
+  // Location and search are now independent. Location (lat/lng) always
+  // drives the map + the near-me list; a query drives the search-results
+  // list and takes precedence for the *content* area below the map. So
+  // searching no longer wipes the map — the location stays in the URL.
   const userLat = parseCoord(lat);
   const userLng = parseCoord(lng);
-  const nearMode = userLat !== null && userLng !== null;
+  const hasLocation = userLat !== null && userLng !== null;
   const shown = parseShown(shownRaw);
 
   let areas: AreaCardData[] = [];
   let nearResults: NearCrag[] = [];
-  let apiError = false;
+  let nearError = false;
+  let searchError = false;
 
-  if (nearMode) {
+  // Location → map pins + near list. Runs whether or not we're also
+  // searching, so the map stays populated during a search.
+  if (hasLocation) {
     try {
       const result = await getClient().query<GetCragsNearResponse>({
         query: GET_CRAGS_NEAR,
@@ -162,9 +166,12 @@ export default async function Home({
       nearResults = all.slice(0, NEAR_MAX_SHOWN);
     } catch (err) {
       console.error("OpenBeta cragsNear query failed:", err);
-      apiError = true;
+      nearError = true;
     }
-  } else if (query) {
+  }
+
+  // Query → search-results list, independent of location.
+  if (query) {
     try {
       const result = await getClient().query<GetAreasResponse>({
         query: GET_AREAS,
@@ -173,7 +180,7 @@ export default async function Home({
       areas = result.data?.areas ?? [];
     } catch (err) {
       console.error("OpenBeta GraphQL query failed:", err);
-      apiError = true;
+      searchError = true;
     }
   }
 
@@ -209,6 +216,14 @@ export default async function Home({
           className="flex flex-col sm:flex-row gap-2 mb-8"
           role="search"
         >
+          {/* Carry the current location through a search submission so
+              the map keeps its pins instead of resetting to empty. */}
+          {hasLocation && (
+            <>
+              <input type="hidden" name="lat" value={userLat} />
+              <input type="hidden" name="lng" value={userLng} />
+            </>
+          )}
           <input
             type="search"
             name="q"
@@ -226,11 +241,11 @@ export default async function Home({
           </button>
         </form>
 
-        <AutoLocate active={nearMode} />
+        <AutoLocate active={hasLocation} />
 
         <NearMap
-          userLat={nearMode ? userLat : null}
-          userLng={nearMode ? userLng : null}
+          userLat={hasLocation ? userLat : null}
+          userLng={hasLocation ? userLng : null}
           // Map shows ALL pins in the radius (up to NEAR_MAX_SHOWN),
           // not just the paginated card slice — so zooming out reveals
           // the farther crags rather than empty rock.
@@ -249,8 +264,39 @@ export default async function Home({
 
         <NearMeButton />
 
-        {nearMode ? (
-          apiError ? (
+        {query ? (
+          // Searching — show search results below the (still-populated)
+          // map. Takes precedence over the near-me list.
+          searchError ? (
+            <ApiErrorBlock />
+          ) : (
+            <>
+              <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
+                {areas.length > 0
+                  ? `${areas.length} result${areas.length === 1 ? "" : "s"} for "${query}"`
+                  : `No results for "${query}"`}
+              </h2>
+
+              {areas.length === 0 ? (
+                <p className="text-stone-500 dark:text-stone-400">
+                  Try a different search term, or check your spelling.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {areas.map((area) => (
+                    <AreaCard
+                      key={area.uuid}
+                      area={area}
+                      location={locationFor(area.metadata)}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )
+        ) : hasLocation ? (
+          // No query but we have a location — the near-me list.
+          nearError ? (
             <ApiErrorBlock />
           ) : (
             <>
@@ -274,60 +320,35 @@ export default async function Home({
               )}
             </>
           )
-        ) : query === "" ? (
+        ) : (
+          // No query, no location — the intro state.
           <>
             <BookmarksPreview />
             <TicksPreview />
             <p className="text-stone-500 dark:text-stone-400 text-center py-12">
               Search for an area to get started. Try{" "}
-            <Link
-              href="/?q=Smith+Rock"
-              className="text-stone-900 dark:text-stone-100 underline underline-offset-4 hover:text-stone-700 dark:hover:text-stone-300"
-            >
-              Smith Rock
-            </Link>
-            ,{" "}
-            <Link
-              href="/?q=Joshua+Tree"
-              className="text-stone-900 dark:text-stone-100 underline underline-offset-4 hover:text-stone-700 dark:hover:text-stone-300"
-            >
-              Joshua Tree
-            </Link>
-            , or{" "}
-            <Link
-              href="/?q=Red+Rocks"
-              className="text-stone-900 dark:text-stone-100 underline underline-offset-4 hover:text-stone-700 dark:hover:text-stone-300"
-            >
-              Red Rocks
-            </Link>
-            .
+              <Link
+                href="/?q=Smith+Rock"
+                className="text-stone-900 dark:text-stone-100 underline underline-offset-4 hover:text-stone-700 dark:hover:text-stone-300"
+              >
+                Smith Rock
+              </Link>
+              ,{" "}
+              <Link
+                href="/?q=Joshua+Tree"
+                className="text-stone-900 dark:text-stone-100 underline underline-offset-4 hover:text-stone-700 dark:hover:text-stone-300"
+              >
+                Joshua Tree
+              </Link>
+              , or{" "}
+              <Link
+                href="/?q=Red+Rocks"
+                className="text-stone-900 dark:text-stone-100 underline underline-offset-4 hover:text-stone-700 dark:hover:text-stone-300"
+              >
+                Red Rocks
+              </Link>
+              .
             </p>
-          </>
-        ) : apiError ? (
-          <ApiErrorBlock />
-        ) : (
-          <>
-            <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
-              {areas.length > 0
-                ? `${areas.length} result${areas.length === 1 ? "" : "s"} for "${query}"`
-                : `No results for "${query}"`}
-            </h2>
-
-            {areas.length === 0 ? (
-              <p className="text-stone-500 dark:text-stone-400">
-                Try a different search term, or check your spelling.
-              </p>
-            ) : (
-              <div className="space-y-4">
-                {areas.map((area) => (
-                  <AreaCard
-                    key={area.uuid}
-                    area={area}
-                    location={locationFor(area.metadata)}
-                  />
-                ))}
-              </div>
-            )}
           </>
         )}
       </div>

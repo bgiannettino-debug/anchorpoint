@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { GEO_GRANTED_KEY } from "@/lib/geo-consent";
 
 type Status = "idle" | "locating" | "error";
 
@@ -72,6 +73,15 @@ export function NearMeButton() {
       (pos) => {
         if (safetyTimer.current != null) clearTimeout(safetyTimer.current);
         const { latitude, longitude } = pos.coords;
+        // Remember that permission was granted so AutoLocate can skip
+        // the button on future visits (Safari-safe — doesn't rely on
+        // the Permissions API).
+        try {
+          window.localStorage.setItem(GEO_GRANTED_KEY, "1");
+        } catch {
+          // localStorage unavailable (private mode quota, etc.) — the
+          // button still works, just no auto-load next time.
+        }
         // Reset status now that geolocate succeeded; isPending will
         // keep the button looking busy through the navigation.
         setStatus("idle");
