@@ -52,6 +52,8 @@ export function ClimbMapToggle({
         userLat={null}
         userLng={null}
         crags={[{ uuid: areaUuid, name: areaName, lat, lng, climbs: areaClimbs }]}
+        // Tight ~half-mile frame so the crag location is obvious.
+        frameRadiusMiles={0.5}
       />
     </div>
   );
