@@ -12,7 +12,9 @@ import {
   ClimbResultsGrouped,
   type ClimbResult,
 } from "@/components/climb-results-grouped";
+import { TypeFilterChips } from "@/components/type-filter-chips";
 import { haversineMiles } from "@/lib/geo";
+import { parseTypeFilter } from "@/lib/climb-types";
 import { locationKey, resolveLocations } from "@/lib/geocoding";
 import { createClient } from "@/lib/supabase/server";
 import { gql } from "@apollo/client";
@@ -118,14 +120,25 @@ export default async function Home({
     lng?: string;
     shown?: string;
     mode?: string;
+    type?: string;
   }>;
 }) {
-  const { q, lat, lng, shown: shownRaw, mode: modeRaw } = await searchParams;
+  const {
+    q,
+    lat,
+    lng,
+    shown: shownRaw,
+    mode: modeRaw,
+    type: typeRaw,
+  } = await searchParams;
   const query = q?.trim() ?? "";
   // "areas" (default) searches the OpenBeta area index; "routes" searches
   // our Supabase climbs_index by name. The two tabs above the search box
   // flip this; a hidden input carries it through form submission.
   const mode = modeRaw === "routes" ? "routes" : "areas";
+  // Discipline chips for Routes mode (Sport/Trad/Boulder/…). Only applied
+  // when searching routes.
+  const typeFilter = mode === "routes" ? parseTypeFilter(typeRaw) : new Set<string>();
 
   // Location and search are now independent. Location (lat/lng) always
   // drives the map + the near-me list; a query drives the search-results
@@ -212,6 +225,7 @@ export default async function Home({
       const supabase = await createClient();
       const { data, error } = await supabase.rpc("search_climbs", {
         q: query,
+        types: typeFilter.size > 0 ? Array.from(typeFilter) : null,
         max_results: 50,
       });
       if (error) throw error;
@@ -302,6 +316,14 @@ export default async function Home({
           {mode === "routes" && (
             <input type="hidden" name="mode" value="routes" />
           )}
+          {/* Carry the active discipline chips through a new search. */}
+          {mode === "routes" && typeFilter.size > 0 && (
+            <input
+              type="hidden"
+              name="type"
+              value={Array.from(typeFilter).join(",")}
+            />
+          )}
           <input
             type="search"
             name="q"
@@ -359,6 +381,20 @@ export default async function Home({
                     ? `No routes for "${query}"`
                     : `${routes.length === 50 ? "Top 50 routes" : `${routes.length} route${routes.length === 1 ? "" : "s"}`} in ${routeAreaCount} area${routeAreaCount === 1 ? "" : "s"} for "${query}"`}
                 </h2>
+
+                <TypeFilterChips
+                  active={typeFilter}
+                  hrefFor={(t) =>
+                    routeTypeHref(
+                      t,
+                      query,
+                      typeFilter,
+                      hasLocation ? userLat : null,
+                      hasLocation ? userLng : null,
+                    )
+                  }
+                  ariaLabel="Filter routes by type"
+                />
 
                 {routes.length === 0 ? (
                   <p className="text-stone-500 dark:text-stone-400">
@@ -488,6 +524,30 @@ function searchHref(
   }
   const qs = p.toString();
   return qs ? `/?${qs}` : "/";
+}
+
+// Build a Routes-tab URL with one discipline chip toggled on/off,
+// preserving the query and location. Always sets mode=routes since the
+// chips only show there.
+function routeTypeHref(
+  toggle: string,
+  query: string,
+  active: Set<string>,
+  userLat: number | null,
+  userLng: number | null,
+): string {
+  const next = new Set(active);
+  if (next.has(toggle)) next.delete(toggle);
+  else next.add(toggle);
+  const p = new URLSearchParams();
+  if (query) p.set("q", query);
+  p.set("mode", "routes");
+  if (next.size > 0) p.set("type", Array.from(next).join(","));
+  if (userLat !== null && userLng !== null) {
+    p.set("lat", String(userLat));
+    p.set("lng", String(userLng));
+  }
+  return `/?${p.toString()}`;
 }
 
 function parseCoord(raw: string | undefined): number | null {
