@@ -6,6 +6,17 @@ import { gql } from "@apollo/client";
 import { getClient } from "@/lib/apollo-client";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { TickForm } from "@/components/tick-form";
+import { ClimbMapToggle } from "@/components/climb-map-toggle";
+
+// Return valid coordinates from a metadata object, or null. Treats the
+// 0,0 "null island" sentinel OpenBeta sometimes returns as no-coords.
+function coordsOf(
+  meta: { lat?: number | null; lng?: number | null } | null | undefined,
+): { lat: number; lng: number } | null {
+  if (!meta || meta.lat == null || meta.lng == null) return null;
+  if (meta.lat === 0 && meta.lng === 0) return null;
+  return { lat: meta.lat, lng: meta.lng };
+}
 
 type ClimbDetail = {
   uuid: string;
@@ -38,9 +49,15 @@ type ClimbDetail = {
     height: number;
   }[] | null;
   ticks?: { _id: string }[] | null;
+  metadata?: { lat?: number | null; lng?: number | null } | null;
   pathTokens: string[];
   ancestors: string[];
-  parent?: { uuid: string; area_name: string } | null;
+  parent?: {
+    uuid: string;
+    area_name: string;
+    totalClimbs: number;
+    metadata?: { lat?: number | null; lng?: number | null } | null;
+  } | null;
 };
 
 type GetClimbResponse = {
@@ -87,11 +104,20 @@ const GET_CLIMB = gql`
       ticks {
         _id
       }
+      metadata {
+        lat
+        lng
+      }
       pathTokens
       ancestors
       parent {
         uuid
         area_name
+        totalClimbs
+        metadata {
+          lat
+          lng
+        }
       }
     }
   }
@@ -168,6 +194,8 @@ export default async function ClimbPage({
         : null;
   const tickCount = climb.ticks?.length ?? 0;
   const fa = climb.fa?.trim();
+  // Prefer the climb's own coords; fall back to the parent area's.
+  const mapCoords = coordsOf(climb.metadata) ?? coordsOf(climb.parent?.metadata);
 
   // Build a JSX list of meta parts, joined with " · ". Doing this here
   // (rather than as a string) lets the safety rating keep its own styling.
@@ -254,6 +282,18 @@ export default async function ClimbPage({
             ancestorUuids={climb.ancestors.slice(0, -1)}
           />
         </div>
+
+        {mapCoords && climb.parent && (
+          <div className="mt-3">
+            <ClimbMapToggle
+              lat={mapCoords.lat}
+              lng={mapCoords.lng}
+              areaUuid={climb.parent.uuid}
+              areaName={climb.parent.area_name}
+              areaClimbs={climb.parent.totalClimbs}
+            />
+          </div>
+        )}
 
         {climb.media && climb.media.length > 0 && (
           <section className="mt-8">
