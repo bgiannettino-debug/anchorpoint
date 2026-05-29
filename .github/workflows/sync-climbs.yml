@@ -1,0 +1,30 @@
+name: Sync climbs index
+
+# Refreshes the Supabase route-search index from OpenBeta. The catalog
+# changes slowly (contributor edits), so weekly is plenty. Also runnable
+# on demand from the Actions tab.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+# Never run two crawls at once (e.g. a manual run during the weekly one).
+concurrency:
+  group: sync-climbs
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node scripts/sync-climbs.mjs
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

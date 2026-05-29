@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "sync": "node scripts/sync-climbs.mjs"
   },
   "dependencies": {
     "@apollo/client": "^4.2.0",
