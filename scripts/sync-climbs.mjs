@@ -12,11 +12,15 @@
 //   OPENBETA_API (optional)    - defaults to https://api.openbeta.io
 //
 // Create the table first with supabase/climbs-index.sql.
-
-import { createClient } from "@supabase/supabase-js";
+//
+// Talks to Supabase over its REST (PostgREST) endpoint with plain fetch
+// rather than @supabase/supabase-js: the SDK instantiates a realtime
+// WebSocket client on createClient(), which throws on Node < 22 ("no
+// native WebSocket support"). This script only does batch upserts/deletes
+// — no realtime — so REST keeps it dependency-free and Node-version-proof.
 
 const OPENBETA_API = process.env.OPENBETA_API ?? "https://api.openbeta.io";
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
@@ -25,6 +29,13 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
   );
   process.exit(1);
 }
+
+const REST_URL = `${SUPABASE_URL}/rest/v1/climbs_index`;
+const REST_HEADERS = {
+  apikey: SERVICE_KEY,
+  Authorization: `Bearer ${SERVICE_KEY}`,
+  "Content-Type": "application/json",
+};
 
 // OpenBeta caps `areas` at 500 results per page regardless of `limit`.
 const PAGE_SIZE = 500;
@@ -66,6 +77,22 @@ async function gql(query, variables) {
   return json.data;
 }
 
+// Upsert a batch of rows by primary key (uuid). merge-duplicates maps to
+// Postgres ON CONFLICT; return=minimal skips echoing the rows back.
+async function upsert(rows) {
+  const res = await fetch(REST_URL, {
+    method: "POST",
+    headers: {
+      ...REST_HEADERS,
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) {
+    throw new Error(`Supabase upsert HTTP ${res.status}: ${await res.text()}`);
+  }
+}
+
 // Drop OpenBeta's 0,0 "null island" sentinel and any non-numeric coord.
 function coords(meta) {
   const lat = typeof meta?.lat === "number" ? meta.lat : null;
@@ -78,10 +105,6 @@ function coords(meta) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
-  const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
-    auth: { persistSession: false },
-  });
-
   // One timestamp for the whole run; every upserted row is stamped with
   // it so we can prune climbs that disappeared from OpenBeta afterward.
   const runAt = new Date().toISOString();
@@ -91,10 +114,7 @@ async function main() {
 
   async function flush() {
     if (buffer.length === 0) return;
-    const { error } = await supabase
-      .from("climbs_index")
-      .upsert(buffer, { onConflict: "uuid" });
-    if (error) throw new Error(`Supabase upsert failed: ${error.message}`);
+    await upsert(buffer);
     total += buffer.length;
     buffer = [];
     console.log(`  upserted ${total} climbs so far`);
@@ -145,15 +165,22 @@ async function main() {
 
   // Prune climbs removed from OpenBeta since this run began. Only reached
   // after a full crawl succeeded (any page/upsert error throws above), so
-  // a partial failure can't wipe the index.
-  const { error: delError, count } = await supabase
-    .from("climbs_index")
-    .delete({ count: "exact" })
-    .lt("updated_at", runAt);
-  if (delError) {
-    console.error(`Prune failed (non-fatal): ${delError.message}`);
-  } else if (count) {
-    console.log(`Pruned ${count} stale climbs`);
+  // a partial failure can't wipe the index. count=exact returns the
+  // number deleted in the Content-Range header (e.g. "*/12").
+  const delRes = await fetch(
+    `${REST_URL}?updated_at=lt.${encodeURIComponent(runAt)}`,
+    {
+      method: "DELETE",
+      headers: { ...REST_HEADERS, Prefer: "count=exact,return=minimal" },
+    },
+  );
+  if (!delRes.ok) {
+    console.error(
+      `Prune failed (non-fatal) HTTP ${delRes.status}: ${await delRes.text()}`,
+    );
+  } else {
+    const pruned = delRes.headers.get("content-range")?.split("/")[1];
+    if (pruned && pruned !== "0") console.log(`Pruned ${pruned} stale climbs`);
   }
 
   console.log(`Done. ${total} climbs indexed.`);
