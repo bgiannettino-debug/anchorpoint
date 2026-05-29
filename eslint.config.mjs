@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Standalone Node crawler — not part of the Next app; uses Node
+    // globals the Next/TS rules don't expect.
+    "scripts/**",
   ]),
 ]);
 
