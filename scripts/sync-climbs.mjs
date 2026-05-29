@@ -45,6 +45,41 @@ const UPSERT_BATCH = 1000;
 // Politeness pause between API pages so a full crawl doesn't hammer the
 // public OpenBeta endpoint.
 const PAGE_DELAY_MS = 200;
+// Retry transient failures (5xx, 429, network blips) so one hiccup
+// partway through an ~85-page crawl doesn't fail the whole run. OpenBeta
+// returns the occasional 502; without this the run dies and re-runs from
+// scratch.
+const MAX_RETRIES = 5;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// fetch + retry with exponential backoff. Retries on 5xx/429 and thrown
+// network errors; returns the Response for any other status (incl. 4xx)
+// so callers can surface a real error (e.g. a 401 bad key) without
+// pointlessly retrying it.
+async function fetchRetry(url, options, label) {
+  let lastErr;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.status >= 500 || res.status === 429) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return res;
+    } catch (err) {
+      lastErr = err;
+      if (attempt === MAX_RETRIES) break;
+      const wait = Math.min(1000 * 2 ** (attempt - 1), 16000);
+      console.warn(
+        `  ${label} transient failure (attempt ${attempt}/${MAX_RETRIES}): ${err.message}; retrying in ${wait}ms`,
+      );
+      await sleep(wait);
+    }
+  }
+  throw new Error(
+    `${label} failed after ${MAX_RETRIES} attempts: ${lastErr?.message}`,
+  );
+}
 
 const CRAWL_QUERY = `
   query Crawl($limit: Int!, $offset: Int!) {
@@ -64,11 +99,15 @@ const CRAWL_QUERY = `
 `;
 
 async function gql(query, variables) {
-  const res = await fetch(OPENBETA_API, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, variables }),
-  });
+  const res = await fetchRetry(
+    OPENBETA_API,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, variables }),
+    },
+    "OpenBeta query",
+  );
   if (!res.ok) throw new Error(`OpenBeta HTTP ${res.status}`);
   const json = await res.json();
   if (json.errors) {
@@ -80,14 +119,18 @@ async function gql(query, variables) {
 // Upsert a batch of rows by primary key (uuid). merge-duplicates maps to
 // Postgres ON CONFLICT; return=minimal skips echoing the rows back.
 async function upsert(rows) {
-  const res = await fetch(REST_URL, {
-    method: "POST",
-    headers: {
-      ...REST_HEADERS,
-      Prefer: "resolution=merge-duplicates,return=minimal",
+  const res = await fetchRetry(
+    REST_URL,
+    {
+      method: "POST",
+      headers: {
+        ...REST_HEADERS,
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify(rows),
     },
-    body: JSON.stringify(rows),
-  });
+    "Supabase upsert",
+  );
   if (!res.ok) {
     throw new Error(`Supabase upsert HTTP ${res.status}: ${await res.text()}`);
   }
@@ -101,8 +144,6 @@ function coords(meta) {
   if (lat === 0 && lng === 0) return { lat: null, lng: null };
   return { lat, lng };
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   // One timestamp for the whole run; every upserted row is stamped with
