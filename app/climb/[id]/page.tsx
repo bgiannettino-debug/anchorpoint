@@ -6,17 +6,8 @@ import { gql } from "@apollo/client";
 import { getClient } from "@/lib/apollo-client";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { TickForm } from "@/components/tick-form";
-import { ClimbMapToggle } from "@/components/climb-map-toggle";
-
-// Return valid coordinates from a metadata object, or null. Treats the
-// 0,0 "null island" sentinel OpenBeta sometimes returns as no-coords.
-function coordsOf(
-  meta: { lat?: number | null; lng?: number | null } | null | undefined,
-): { lat: number; lng: number } | null {
-  if (!meta || meta.lat == null || meta.lng == null) return null;
-  if (meta.lat === 0 && meta.lng === 0) return null;
-  return { lat: meta.lat, lng: meta.lng };
-}
+import { MapToggle } from "@/components/map-toggle";
+import { coordsOf } from "@/lib/geo";
 
 type ClimbDetail = {
   uuid: string;
@@ -285,12 +276,17 @@ export default async function ClimbPage({
 
         {mapCoords && climb.parent && (
           <div className="mt-3">
-            <ClimbMapToggle
-              lat={mapCoords.lat}
-              lng={mapCoords.lng}
-              areaUuid={climb.parent.uuid}
-              areaName={climb.parent.area_name}
-              areaClimbs={climb.parent.totalClimbs}
+            <MapToggle
+              crags={[
+                {
+                  uuid: climb.parent.uuid,
+                  name: climb.parent.area_name,
+                  lat: mapCoords.lat,
+                  lng: mapCoords.lng,
+                  climbs: climb.parent.totalClimbs,
+                },
+              ]}
+              frameRadiusMiles={0.5}
             />
           </div>
         )}

@@ -1,6 +1,19 @@
 type LatLng = { lat: number; lng: number };
 
 /**
+ * Return valid coordinates from an OpenBeta metadata object, or null.
+ * Treats the 0,0 "null island" sentinel OpenBeta sometimes returns as
+ * no-coords.
+ */
+export function coordsOf(
+  meta: { lat?: number | null; lng?: number | null } | null | undefined,
+): LatLng | null {
+  if (!meta || meta.lat == null || meta.lng == null) return null;
+  if (meta.lat === 0 && meta.lng === 0) return null;
+  return { lat: meta.lat, lng: meta.lng };
+}
+
+/**
  * Great-circle distance in miles between two lat/lng points.
  * Standard haversine — accurate to ~0.5% over typical climbing-area
  * distances (under a few hundred miles).

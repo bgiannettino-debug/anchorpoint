@@ -1,29 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import { NearMap } from "@/components/near-map";
+import { NearMap, type NearMapCrag } from "@/components/near-map";
 
 type Props = {
-  lat: number;
-  lng: number;
-  areaUuid: string;
-  areaName: string;
-  areaClimbs: number;
+  crags: NearMapCrag[];
+  userLat?: number | null;
+  userLng?: number | null;
+  fitMode?: "radius" | "all";
+  frameRadiusMiles?: number;
+  label?: string;
 };
 
 /**
- * A "Show map" button on the climb page that reveals a small map
- * pinned to the climb's area. Reuses NearMap (single pin, no user
- * origin marker) so all the map container fixes + the live "locate me"
- * control come along for free. NearMap's own click-to-expand still
- * works once the map is shown.
+ * A "Show map" button that reveals a NearMap. Used on the climb page
+ * (single pin, tight radius) and the area page (sub-area pins, fit
+ * all). Reusing NearMap means every container/touch/resize fix and the
+ * live "locate me" control come along for free. NearMap's own
+ * click-to-expand still works once shown.
  */
-export function ClimbMapToggle({
-  lat,
-  lng,
-  areaUuid,
-  areaName,
-  areaClimbs,
+export function MapToggle({
+  crags,
+  userLat = null,
+  userLng = null,
+  fitMode,
+  frameRadiusMiles,
+  label = "Show map",
 }: Props) {
   const [open, setOpen] = useState(false);
 
@@ -34,7 +36,7 @@ export function ClimbMapToggle({
         onClick={() => setOpen(true)}
         className="shrink-0 inline-flex items-center text-sm px-3 py-1.5 rounded-full border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
       >
-        Show map
+        {label}
       </button>
     );
   }
@@ -49,11 +51,11 @@ export function ClimbMapToggle({
         Hide map
       </button>
       <NearMap
-        userLat={null}
-        userLng={null}
-        crags={[{ uuid: areaUuid, name: areaName, lat, lng, climbs: areaClimbs }]}
-        // Tight ~half-mile frame so the crag location is obvious.
-        frameRadiusMiles={0.5}
+        userLat={userLat}
+        userLng={userLng}
+        crags={crags}
+        fitMode={fitMode}
+        frameRadiusMiles={frameRadiusMiles}
       />
     </div>
   );

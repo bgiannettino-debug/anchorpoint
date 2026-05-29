@@ -27,9 +27,14 @@ type Props = {
   userLat: number | null;
   userLng: number | null;
   crags: NearMapCrag[];
-  // Radius (miles) the initial view frames around the focus point —
-  // the user when known, otherwise the first crag. Default 20 suits
-  // the home near-me map; the climb page passes a tight 0.5.
+  // How the initial view is framed:
+  //  - "radius" (default): a fixed box around the focus point (the
+  //    user when known, else the first crag). frameRadiusMiles sets
+  //    the size. Used by the home near-me map (20) and climb map (0.5).
+  //  - "all": fitBounds to every crag (+ user). Used by the area page
+  //    so all sub-areas are visible at once.
+  fitMode?: "radius" | "all";
+  // Radius (miles) for fitMode "radius". Ignored when fitMode is "all".
   frameRadiusMiles?: number;
 };
 
@@ -46,6 +51,7 @@ export function NearMap({
   userLat,
   userLng,
   crags,
+  fitMode = "radius",
   frameRadiusMiles = 20,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -149,9 +155,21 @@ export function NearMap({
       // CSS finished applying (canvas stuck at the 300px default).
       map.resize();
 
-      // Frame a fixed-radius box around the focus point: the user when
-      // known (home near-me map, 20 mi), otherwise the first crag
-      // (climb-page map, 0.5 mi). Pins outside the box still render, so
+      // "all" — frame every crag (+ user) so the whole set is visible.
+      // maxZoom keeps a single pin from zooming to street level.
+      if (fitMode === "all") {
+        const bounds = new mapboxgl.LngLatBounds();
+        if (hasUserCoords) bounds.extend([userLng, userLat]);
+        for (const c of crags) bounds.extend([c.lng, c.lat]);
+        if (!bounds.isEmpty()) {
+          map.fitBounds(bounds, { padding: 40, maxZoom: 13, duration: 0 });
+        }
+        return;
+      }
+
+      // "radius" — frame a fixed-radius box around the focus point: the
+      // user when known (home near-me map, 20 mi), otherwise the first
+      // crag (climb-page map, 0.5 mi). Pins outside still render, so
       // zooming out reveals them. 1° lat ≈ 69 mi; lng scaled by cos lat.
       const focusLat = hasUserCoords ? userLat : (crags[0]?.lat ?? null);
       const focusLng = hasUserCoords ? userLng : (crags[0]?.lng ?? null);
@@ -183,7 +201,7 @@ export function NearMap({
       map.remove();
       mapRef.current = null;
     };
-  }, [userLat, userLng, crags, hasUserCoords, frameRadiusMiles]);
+  }, [userLat, userLng, crags, hasUserCoords, frameRadiusMiles, fitMode]);
 
   useEffect(() => {
     const map = mapRef.current;
