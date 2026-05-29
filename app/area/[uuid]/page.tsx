@@ -6,8 +6,10 @@ import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { MapToggle } from "@/components/map-toggle";
+import { TypeFilterChips } from "@/components/type-filter-chips";
 import { gradeToNumber } from "@/lib/grades";
 import { coordsOf } from "@/lib/geo";
+import { parseTypeFilter } from "@/lib/climb-types";
 import { locationKey, resolveLocations } from "@/lib/geocoding";
 
 type Climb = {
@@ -383,30 +385,6 @@ function sortChildren(children: AreaCardData[]): AreaCardData[] {
   });
 }
 
-// Order matches formatClimbType's display order so chips read in the
-// same sequence climbers see on the rows themselves.
-const TYPE_FILTER_OPTIONS: { value: string; label: string }[] = [
-  { value: "sport", label: "Sport" },
-  { value: "trad", label: "Trad" },
-  { value: "bouldering", label: "Boulder" },
-  { value: "tr", label: "TR" },
-  { value: "mixed", label: "Mixed" },
-  { value: "ice", label: "Ice" },
-  { value: "aid", label: "Aid" },
-  { value: "alpine", label: "Alpine" },
-  { value: "deepwatersolo", label: "DWS" },
-];
-const KNOWN_TYPES = new Set(TYPE_FILTER_OPTIONS.map((o) => o.value));
-
-function parseTypeFilter(raw: string | undefined): Set<string> {
-  if (!raw) return new Set();
-  const parts = raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => KNOWN_TYPES.has(s));
-  return new Set(parts);
-}
-
 function climbMatchesTypeFilter(climb: Climb, active: Set<string>): boolean {
   if (active.size === 0) return true;
   const t = climb.type;
@@ -522,29 +500,11 @@ function TypeFilter({
   }
 
   return (
-    <div
-      role="group"
-      aria-label="Filter routes by type"
-      className="flex flex-wrap gap-2 mb-3"
-    >
-      {TYPE_FILTER_OPTIONS.map((opt) => {
-        const isActive = active.has(opt.value);
-        return (
-          <Link
-            key={opt.value}
-            href={hrefFor(opt.value)}
-            aria-pressed={isActive}
-            className={
-              isActive
-                ? "px-3 py-1 rounded-full text-sm bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium"
-                : "px-3 py-1 rounded-full text-sm border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
-            }
-          >
-            {opt.label}
-          </Link>
-        );
-      })}
-    </div>
+    <TypeFilterChips
+      active={active}
+      hrefFor={hrefFor}
+      ariaLabel="Filter routes by type"
+    />
   );
 }
 
