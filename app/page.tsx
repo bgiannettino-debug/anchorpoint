@@ -9,9 +9,9 @@ import { LOCATION_COOKIE, parseLocationCookie } from "@/lib/geo-consent";
 import { BookmarksPreview } from "@/components/bookmarks-preview";
 import { TicksPreview } from "@/components/ticks-preview";
 import {
-  ClimbResultCard,
+  ClimbResultsGrouped,
   type ClimbResult,
-} from "@/components/climb-result-card";
+} from "@/components/climb-results-grouped";
 import { haversineMiles } from "@/lib/geo";
 import { locationKey, resolveLocations } from "@/lib/geocoding";
 import { createClient } from "@/lib/supabase/server";
@@ -221,6 +221,11 @@ export default async function Home({
       routeError = true;
     }
   }
+  // Distinct crags among the route hits — shown in the results heading
+  // since results are grouped by area.
+  const routeAreaCount = new Set(
+    routes.map((r) => r.area_uuid ?? r.area_name ?? "—"),
+  ).size;
 
   // Batch-resolve City/State labels for every card on the page in one
   // pass so AreaCard never has to round-trip Mapbox itself.
@@ -352,9 +357,7 @@ export default async function Home({
                 <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
                   {routes.length === 0
                     ? `No routes for "${query}"`
-                    : routes.length === 50
-                      ? `Top 50 routes for "${query}"`
-                      : `${routes.length} route${routes.length === 1 ? "" : "s"} for "${query}"`}
+                    : `${routes.length === 50 ? "Top 50 routes" : `${routes.length} route${routes.length === 1 ? "" : "s"}`} in ${routeAreaCount} area${routeAreaCount === 1 ? "" : "s"} for "${query}"`}
                 </h2>
 
                 {routes.length === 0 ? (
@@ -374,11 +377,7 @@ export default async function Home({
                     instead.
                   </p>
                 ) : (
-                  <div className="space-y-4">
-                    {routes.map((r) => (
-                      <ClimbResultCard key={r.uuid} climb={r} />
-                    ))}
-                  </div>
+                  <ClimbResultsGrouped climbs={routes} />
                 )}
               </>
             )
