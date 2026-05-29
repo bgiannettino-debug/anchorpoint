@@ -5,7 +5,9 @@ import { gql } from "@apollo/client";
 import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { BookmarkButton } from "@/components/bookmark-button";
+import { MapToggle } from "@/components/map-toggle";
 import { gradeToNumber } from "@/lib/grades";
+import { coordsOf } from "@/lib/geo";
 import { locationKey, resolveLocations } from "@/lib/geocoding";
 
 type Climb = {
@@ -254,6 +256,8 @@ export default async function AreaPage({
               })()}
             </p>
 
+            <AreaMap area={area} />
+
             {area.children.length > 0 && (
               <section className="mb-10">
                 <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
@@ -289,6 +293,50 @@ export default async function AreaPage({
         )}
       </div>
     </main>
+  );
+}
+
+function AreaMap({ area }: { area: AreaDetail }) {
+  // Prefer pins for the sub-areas — that's the useful "what's around
+  // here" view. Fall back to a single pin for the area itself when it
+  // has no children with coords (e.g. a leaf crag with only climbs).
+  const childCrags = area.children
+    .map((c) => {
+      const co = coordsOf(c.metadata);
+      return co
+        ? {
+            uuid: c.uuid,
+            name: c.area_name,
+            lat: co.lat,
+            lng: co.lng,
+            climbs: c.totalClimbs,
+          }
+        : null;
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null);
+
+  const areaCoords = coordsOf(area.metadata);
+  const mapCrags =
+    childCrags.length > 0
+      ? childCrags
+      : areaCoords
+        ? [
+            {
+              uuid: area.uuid,
+              name: area.area_name,
+              lat: areaCoords.lat,
+              lng: areaCoords.lng,
+              climbs: area.totalClimbs,
+            },
+          ]
+        : [];
+
+  if (mapCrags.length === 0) return null;
+
+  return (
+    <div className="mb-8">
+      <MapToggle crags={mapCrags} fitMode="all" />
+    </div>
   );
 }
 
