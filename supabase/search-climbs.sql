@@ -1,30 +1,24 @@
 -- Ranked route-name search for the home page "Routes" tab.
 -- =================================================================
--- Searching 230k climbs by name needs to be both relevant and fast. A
--- plain ILIKE '%term%' ordered by similarity() scans/sorts every match,
--- which times out on common words ("crack" matches 6k+ rows, "the" tens
--- of thousands). Instead we:
---   1. Filter with the trigram word-similarity operator `q <% name`
---      (index-backed) so only genuinely-similar names are considered.
---   2. Take the top 300 by KNN word-distance (`name <->> q`) using a
---      GiST trigram index — this returns the closest matches WITHOUT
---      sorting the whole match set, so even broad terms stay fast.
---   3. Re-rank that small set: exact name → prefix → word-similarity →
---      alphabetical, so "monkey face" beats "King Louie Spire (Monkey
---      Face)".
+-- Searching 230k climbs by name needs to be both relevant and fast. The
+-- pg_trgm `<%` (word-similarity) operator + the GIN trigram index from
+-- climbs-index.sql gives us cheap, index-backed candidate filtering. We
+-- then re-rank the filtered set: exact name → prefix → word-similarity →
+-- alphabetical, so "monkey face" beats "King Louie Spire (Monkey Face)".
 --
--- `types` optionally restricts to selected disciplines (OR'd together),
--- applied inside the candidate filter so type + ranking compose. Pass
--- null/empty for no type restriction.
+-- `types` optionally restricts to selected disciplines (OR'd together).
+-- Pass null/empty for no type restriction.
 --
 -- Run once in the Supabase SQL editor, after climbs-index.sql. Safe to
--- re-run — it drops older signatures and reloads the PostgREST schema
--- cache at the end (so the API immediately sees the new function).
+-- re-run — drops older signatures and reloads the PostgREST schema cache
+-- at the end so the API immediately picks up the new function.
 
 create extension if not exists pg_trgm;
 
--- KNN-capable trigram index for fast top-K fuzzy ordering (the GIN index
--- from climbs-index.sql can't drive `ORDER BY ... <->> ...`).
+-- GiST trigram index was added in an earlier iteration for KNN ordering.
+-- The current function uses the GIN index (from climbs-index.sql) via the
+-- `<%` filter instead, so this one is unused — kept idempotently so the
+-- file stays safe to re-run and the option is there for future tuning.
 create index if not exists climbs_index_name_gist
   on public.climbs_index using gist (name gist_trgm_ops);
 
@@ -38,36 +32,41 @@ create or replace function public.search_climbs(
   max_results int default 50
 )
 returns setof public.climbs_index
-language sql
+language plpgsql
 stable
 as $$
+begin
+  -- Supabase's anon role has a 3s statement_timeout, which can fire on
+  -- broad terms with selective type filters (e.g. "crack" + Sport only),
+  -- where the sort runs over thousands of candidates. 8s is well under
+  -- any pooler-level cap and is plenty of headroom — typical queries
+  -- still return in well under a second.
+  set local statement_timeout = '8s';
+
+  return query
   select *
-  from (
-    select *
-    from public.climbs_index
-    where q <% name
-      and (
-        types is null
-        or cardinality(types) = 0
-        or (sport and 'sport' = any(types))
-        or (trad and 'trad' = any(types))
-        or (bouldering and 'bouldering' = any(types))
-        or (tr and 'tr' = any(types))
-        or (mixed and 'mixed' = any(types))
-        or (ice and 'ice' = any(types))
-        or (aid and 'aid' = any(types))
-        or (alpine and 'alpine' = any(types))
-        or (deepwatersolo and 'deepwatersolo' = any(types))
-      )
-    order by name <->> q   -- KNN word-distance via the GiST index
-    limit 300
-  ) c
+  from public.climbs_index c
+  where q <% c.name           -- GIN-indexed word-similarity gate
+    and (
+      types is null
+      or cardinality(types) = 0
+      or (c.sport and 'sport' = any(types))
+      or (c.trad and 'trad' = any(types))
+      or (c.bouldering and 'bouldering' = any(types))
+      or (c.tr and 'tr' = any(types))
+      or (c.mixed and 'mixed' = any(types))
+      or (c.ice and 'ice' = any(types))
+      or (c.aid and 'aid' = any(types))
+      or (c.alpine and 'alpine' = any(types))
+      or (c.deepwatersolo and 'deepwatersolo' = any(types))
+    )
   order by
     (lower(c.name) = lower(q)) desc,   -- exact match
     (c.name ilike q || '%') desc,      -- prefix match
     word_similarity(q, c.name) desc,   -- fuzzy closeness
     c.name asc
   limit greatest(1, least(coalesce(max_results, 50), 100));
+end;
 $$;
 
 -- Callable by the public (anon) and signed-in (authenticated) roles. The
