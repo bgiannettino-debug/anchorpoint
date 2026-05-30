@@ -330,8 +330,8 @@ export default async function Home({
             defaultValue={query}
             placeholder={
               mode === "routes"
-                ? "Search routes by name (e.g. Moonlight Buttress)"
-                : "Search for a climbing area (e.g. Smith Rock, Joshua Tree)"
+                ? "Search routes (e.g. Moonlight Buttress)"
+                : "Search areas (e.g. Smith Rock)"
             }
             aria-label={mode === "routes" ? "Search routes" : "Search climbing areas"}
             autoFocus
