@@ -330,7 +330,7 @@ export default async function Home({
             defaultValue={query}
             placeholder={
               mode === "routes"
-                ? "Search routes (e.g. Moonlight Buttress)"
+                ? "Search routes (e.g. The Nose)"
                 : "Search areas (e.g. Smith Rock)"
             }
             aria-label={mode === "routes" ? "Search routes" : "Search climbing areas"}
