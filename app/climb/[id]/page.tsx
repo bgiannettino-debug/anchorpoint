@@ -286,7 +286,7 @@ export default async function ClimbPage({
                   climbs: climb.parent.totalClimbs,
                 },
               ]}
-              frameRadiusMiles={0.5}
+              frameRadiusMiles={0.25}
             />
           </div>
         )}
