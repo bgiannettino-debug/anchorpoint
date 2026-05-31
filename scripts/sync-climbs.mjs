@@ -18,6 +18,15 @@
 // WebSocket client on createClient(), which throws on Node < 22 ("no
 // native WebSocket support"). This script only does batch upserts/deletes
 // — no realtime — so REST keeps it dependency-free and Node-version-proof.
+//
+// Star ratings: each climb's OpenBeta `metadata.mp_id` is looked up in
+// data/curated-ratings.json (built by scripts/extract-curated-ratings.mjs
+// from OpenBeta's static 2020 community ratings) and written into the
+// curated_stars / curated_votes columns. Climbs without an mp_id, or
+// whose mp_id isn't in the snapshot, get null ratings — the UI hides
+// the badge for those.
+
+import { readFileSync, existsSync } from "node:fs";
 
 const OPENBETA_API = process.env.OPENBETA_API ?? "https://api.openbeta.io";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
@@ -47,9 +56,16 @@ const UPSERT_BATCH = 1000;
 const PAGE_DELAY_MS = 200;
 // Retry transient failures (5xx, 429, network blips) so one hiccup
 // partway through an ~85-page crawl doesn't fail the whole run. OpenBeta
-// returns the occasional 502; without this the run dies and re-runs from
-// scratch.
-const MAX_RETRIES = 5;
+// returns the occasional 502/504; tuned to ride out roughly two minutes
+// of API flakiness (1+2+4+8+16+32+32+32 = 127s) before giving up on a
+// single request.
+const MAX_RETRIES = 8;
+const MAX_BACKOFF_MS = 32_000;
+// If a single page still fails after all retries, skip it and keep
+// crawling — losing 500 climbs from one page is far better than throwing
+// away 100k+ of upserted progress. Bail entirely only if we accumulate
+// this many skips (signals OpenBeta is sustainably down).
+const MAX_SKIPPED_PAGES = 5;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -69,7 +85,7 @@ async function fetchRetry(url, options, label) {
     } catch (err) {
       lastErr = err;
       if (attempt === MAX_RETRIES) break;
-      const wait = Math.min(1000 * 2 ** (attempt - 1), 16000);
+      const wait = Math.min(1000 * 2 ** (attempt - 1), MAX_BACKOFF_MS);
       console.warn(
         `  ${label} transient failure (attempt ${attempt}/${MAX_RETRIES}): ${err.message}; retrying in ${wait}ms`,
       );
@@ -92,11 +108,34 @@ const CRAWL_QUERY = `
         name
         grades { yds vscale }
         type { sport trad bouldering tr mixed ice aid alpine deepwatersolo }
-        metadata { lat lng }
+        metadata { lat lng mp_id }
       }
     }
   }
 `;
+
+// Load the curated ratings snapshot (mp_id → [avgStars, voteCount]).
+// Optional — if the file isn't present (e.g. very first sync before
+// extract-curated-ratings.mjs has been committed), we skip rating
+// joining and write nulls instead of failing the run.
+const RATINGS_PATH = "data/curated-ratings.json";
+const ratingsMap = existsSync(RATINGS_PATH)
+  ? JSON.parse(readFileSync(RATINGS_PATH, "utf8"))
+  : null;
+if (ratingsMap) {
+  console.log(
+    `Loaded ${Object.keys(ratingsMap).length} curated ratings from ${RATINGS_PATH}`,
+  );
+} else {
+  console.warn(`No ${RATINGS_PATH} found — climbs will sync without ratings.`);
+}
+
+function ratingFor(mpId) {
+  if (!mpId || !ratingsMap) return { stars: null, votes: null };
+  const r = ratingsMap[mpId];
+  if (!r) return { stars: null, votes: null };
+  return { stars: r[0], votes: r[1] };
+}
 
 async function gql(query, variables) {
   const res = await fetchRetry(
@@ -152,6 +191,7 @@ async function main() {
   let offset = 0;
   let total = 0;
   let buffer = [];
+  let skippedPages = 0;
 
   async function flush() {
     if (buffer.length === 0) return;
@@ -163,7 +203,27 @@ async function main() {
 
   console.log(`Crawling ${OPENBETA_API} ...`);
   for (;;) {
-    const data = await gql(CRAWL_QUERY, { limit: PAGE_SIZE, offset });
+    let data;
+    try {
+      data = await gql(CRAWL_QUERY, { limit: PAGE_SIZE, offset });
+    } catch (err) {
+      // Page-level failure (OpenBeta down past our retry budget). Log,
+      // count it, and keep going — losing 500 climbs from one page is
+      // far better than losing the whole crawl. Bail only if it keeps
+      // happening, which would mean OpenBeta is sustainably down.
+      console.error(
+        `page offset=${offset} failed after retries: ${err.message}; skipping`,
+      );
+      skippedPages++;
+      if (skippedPages >= MAX_SKIPPED_PAGES) {
+        throw new Error(
+          `Aborting: ${skippedPages} pages failed in a row — OpenBeta appears to be down.`,
+        );
+      }
+      offset += PAGE_SIZE;
+      await sleep(PAGE_DELAY_MS);
+      continue;
+    }
     const areas = data?.areas ?? [];
     if (areas.length === 0) break;
 
@@ -172,6 +232,8 @@ async function main() {
         if (!climb?.uuid || !climb?.name) continue;
         const c = coords(climb.metadata);
         const t = climb.type ?? {};
+        const mpId = climb.metadata?.mp_id ?? null;
+        const { stars, votes } = ratingFor(mpId);
         buffer.push({
           uuid: climb.uuid,
           name: climb.name,
@@ -191,6 +253,9 @@ async function main() {
           path_tokens: area.pathTokens ?? null,
           lat: c.lat,
           lng: c.lng,
+          mp_id: mpId,
+          curated_stars: stars,
+          curated_votes: votes,
           updated_at: runAt,
         });
         if (buffer.length >= UPSERT_BATCH) await flush();
@@ -204,27 +269,35 @@ async function main() {
   }
   await flush();
 
-  // Prune climbs removed from OpenBeta since this run began. Only reached
-  // after a full crawl succeeded (any page/upsert error throws above), so
-  // a partial failure can't wipe the index. count=exact returns the
-  // number deleted in the Content-Range header (e.g. "*/12").
-  const delRes = await fetch(
-    `${REST_URL}?updated_at=lt.${encodeURIComponent(runAt)}`,
-    {
-      method: "DELETE",
-      headers: { ...REST_HEADERS, Prefer: "count=exact,return=minimal" },
-    },
-  );
-  if (!delRes.ok) {
-    console.error(
-      `Prune failed (non-fatal) HTTP ${delRes.status}: ${await delRes.text()}`,
+  // Prune climbs removed from OpenBeta since this run began. Skip when
+  // any page was skipped — those climbs still have their old updated_at
+  // and would be wrongly pruned. count=exact returns the number deleted
+  // in the Content-Range header (e.g. "*/12").
+  if (skippedPages > 0) {
+    console.warn(
+      `Skipping prune: ${skippedPages} page(s) failed this run; their climbs would be wrongly deleted.`,
     );
   } else {
-    const pruned = delRes.headers.get("content-range")?.split("/")[1];
-    if (pruned && pruned !== "0") console.log(`Pruned ${pruned} stale climbs`);
+    const delRes = await fetch(
+      `${REST_URL}?updated_at=lt.${encodeURIComponent(runAt)}`,
+      {
+        method: "DELETE",
+        headers: { ...REST_HEADERS, Prefer: "count=exact,return=minimal" },
+      },
+    );
+    if (!delRes.ok) {
+      console.error(
+        `Prune failed (non-fatal) HTTP ${delRes.status}: ${await delRes.text()}`,
+      );
+    } else {
+      const pruned = delRes.headers.get("content-range")?.split("/")[1];
+      if (pruned && pruned !== "0") console.log(`Pruned ${pruned} stale climbs`);
+    }
   }
 
-  console.log(`Done. ${total} climbs indexed.`);
+  console.log(
+    `Done. ${total} climbs indexed${skippedPages ? ` (${skippedPages} page(s) skipped — re-run to fill)` : ""}.`,
+  );
 }
 
 main().catch((err) => {

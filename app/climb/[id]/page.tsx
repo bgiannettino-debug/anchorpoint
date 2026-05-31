@@ -7,7 +7,30 @@ import { getClient } from "@/lib/apollo-client";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { TickForm } from "@/components/tick-form";
 import { MapToggle } from "@/components/map-toggle";
+import { Stars } from "@/components/stars";
 import { coordsOf } from "@/lib/geo";
+import { createClient } from "@/lib/supabase/server";
+
+type ClimbRating = {
+  curated_stars: number | null;
+  curated_votes: number | null;
+};
+
+async function fetchRating(uuid: string): Promise<ClimbRating | null> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("climbs_index")
+      .select("curated_stars, curated_votes")
+      .eq("uuid", uuid)
+      .maybeSingle();
+    if (error) throw error;
+    return data ?? null;
+  } catch (err) {
+    console.error("Climb rating fetch failed (non-fatal):", err);
+    return null;
+  }
+}
 
 type ClimbDetail = {
   uuid: string;
@@ -151,7 +174,8 @@ export default async function ClimbPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const climb = await fetchClimb(id);
+  // OpenBeta detail and Supabase rating in parallel — independent calls.
+  const [climb, rating] = await Promise.all([fetchClimb(id), fetchRating(id)]);
 
   if (!climb) {
     return (
@@ -224,8 +248,15 @@ export default async function ClimbPage({
           <h1 className="text-4xl font-bold text-stone-900 dark:text-stone-100">
             {climb.name}
           </h1>
-          <span className="text-2xl font-mono text-stone-700 dark:text-stone-300 shrink-0">
-            {grade}
+          <span className="flex items-baseline gap-3 shrink-0">
+            <Stars
+              stars={rating?.curated_stars}
+              votes={rating?.curated_votes}
+              size="md"
+            />
+            <span className="text-2xl font-mono text-stone-700 dark:text-stone-300">
+              {grade}
+            </span>
           </span>
         </div>
 

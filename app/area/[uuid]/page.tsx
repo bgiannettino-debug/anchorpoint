@@ -6,11 +6,15 @@ import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { MapToggle } from "@/components/map-toggle";
+import { Stars } from "@/components/stars";
 import { TypeFilterChips } from "@/components/type-filter-chips";
 import { gradeToNumber } from "@/lib/grades";
 import { coordsOf } from "@/lib/geo";
 import { parseTypeFilter } from "@/lib/climb-types";
 import { locationKey, resolveLocations } from "@/lib/geocoding";
+import { createClient } from "@/lib/supabase/server";
+
+type Rating = { stars: number | null; votes: number | null };
 
 type Climb = {
   id: string;
@@ -188,6 +192,30 @@ export default async function AreaPage({
     return locations.get(locationKey(meta.lat, meta.lng));
   }
 
+  // Pull curated star ratings for every climb in this area in one shot.
+  // Non-fatal: if Supabase is unreachable or a climb isn't in the index
+  // we just don't render the badge for those rows.
+  const ratings = new Map<string, Rating>();
+  const climbUuids = area?.climbs?.map((c) => c.uuid) ?? [];
+  if (climbUuids.length > 0) {
+    try {
+      const supabase = await createClient();
+      const { data, error } = await supabase
+        .from("climbs_index")
+        .select("uuid, curated_stars, curated_votes")
+        .in("uuid", climbUuids);
+      if (error) throw error;
+      for (const r of data ?? []) {
+        ratings.set(r.uuid, {
+          stars: r.curated_stars,
+          votes: r.curated_votes,
+        });
+      }
+    } catch (err) {
+      console.error("Ratings fetch failed (non-fatal):", err);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-stone-50 dark:bg-stone-950 p-8">
       <div className="max-w-4xl mx-auto">
@@ -283,6 +311,7 @@ export default async function AreaPage({
                 climbs={area.climbs}
                 filter={routeFilter}
                 typeFilter={typeFilter}
+                ratings={ratings}
               />
             )}
 
@@ -408,11 +437,13 @@ function ClimbsSection({
   climbs,
   filter,
   typeFilter,
+  ratings,
 }: {
   uuid: string;
   climbs: Climb[];
   filter: string;
   typeFilter: Set<string>;
+  ratings: Map<string, Rating>;
 }) {
   const matches = climbs.filter((c) => {
     if (filter && !c.name.toLowerCase().includes(filter.toLowerCase())) {
@@ -469,7 +500,11 @@ function ClimbsSection({
       ) : (
         <ul className="bg-white dark:bg-stone-900 rounded-lg border border-stone-200 dark:border-stone-800 divide-y divide-stone-200 dark:divide-stone-800">
           {sortClimbs(matches).map((climb) => (
-            <ClimbRow key={climb.id} climb={climb} />
+            <ClimbRow
+              key={climb.id}
+              climb={climb}
+              rating={ratings.get(climb.uuid)}
+            />
           ))}
         </ul>
       )}
@@ -508,7 +543,13 @@ function TypeFilter({
   );
 }
 
-function ClimbRow({ climb }: { climb: Climb }) {
+function ClimbRow({
+  climb,
+  rating,
+}: {
+  climb: Climb;
+  rating: Rating | undefined;
+}) {
   const grade = climb.grades?.yds ?? climb.grades?.vscale ?? "—";
   const type = formatClimbType(climb.type);
   const pitchCount = climb.pitches?.length ?? 0;
@@ -551,8 +592,11 @@ function ClimbRow({ climb }: { climb: Climb }) {
           <span className="text-stone-900 dark:text-stone-100">
             {climb.name}
           </span>
-          <span className="text-sm text-stone-500 dark:text-stone-400 font-mono shrink-0">
-            {grade}
+          <span className="flex items-baseline gap-3 shrink-0">
+            <Stars stars={rating?.stars} votes={rating?.votes} />
+            <span className="text-sm text-stone-500 dark:text-stone-400 font-mono">
+              {grade}
+            </span>
           </span>
         </div>
         {parts.length > 0 && (
