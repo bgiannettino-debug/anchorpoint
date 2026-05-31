@@ -13,6 +13,7 @@ import {
   type ClimbResult,
 } from "@/components/climb-results-grouped";
 import { TypeFilterChips } from "@/components/type-filter-chips";
+import { WeatherForecast } from "@/components/weather-forecast";
 import { haversineMiles } from "@/lib/geo";
 import { parseTypeFilter } from "@/lib/climb-types";
 import { locationKey, resolveLocations } from "@/lib/geocoding";
@@ -367,6 +368,12 @@ export default async function Home({
         />
 
         <NearMeButton />
+
+        {hasLocation && (
+          <div className="mt-4">
+            <WeatherForecast lat={userLat} lng={userLng} />
+          </div>
+        )}
 
         {query ? (
           // Searching — show search results below the (still-populated)
