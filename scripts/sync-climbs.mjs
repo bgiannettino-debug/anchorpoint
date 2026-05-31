@@ -55,17 +55,18 @@ const UPSERT_BATCH = 1000;
 // public OpenBeta endpoint.
 const PAGE_DELAY_MS = 200;
 // Retry transient failures (5xx, 429, network blips) so one hiccup
-// partway through an ~85-page crawl doesn't fail the whole run. OpenBeta
-// returns the occasional 502/504; tuned to ride out roughly two minutes
-// of API flakiness (1+2+4+8+16+32+32+32 = 127s) before giving up on a
-// single request.
-const MAX_RETRIES = 8;
-const MAX_BACKOFF_MS = 32_000;
+// partway through an ~85-page crawl doesn't fail the whole run. Keep
+// per-page retries modest so hopeless pages bail to "skipped" quickly
+// (1+2+4+8 = 15s budget per page) instead of eating the whole job
+// timeout on persistently 504-ing pages.
+const MAX_RETRIES = 5;
+const MAX_BACKOFF_MS = 16_000;
 // If a single page still fails after all retries, skip it and keep
 // crawling — losing 500 climbs from one page is far better than throwing
-// away 100k+ of upserted progress. Bail entirely only if we accumulate
-// this many skips (signals OpenBeta is sustainably down).
-const MAX_SKIPPED_PAGES = 5;
+// away 100k+ of upserted progress. Generous cap so a sustained-but-
+// recoverable flaky period (lots of intermittent 504s) doesn't bail the
+// whole run; a clean re-run later fills in any skips.
+const MAX_SKIPPED_PAGES = 10;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
