@@ -348,6 +348,8 @@ export default async function Home({
 
         {hasLocation && <LocationSync lat={userLat} lng={userLng} />}
 
+        <NearMeButton />
+
         <NearMap
           userLat={hasLocation ? userLat : null}
           userLng={hasLocation ? userLng : null}
@@ -366,8 +368,6 @@ export default async function Home({
               climbs: c.totalClimbs,
             }))}
         />
-
-        <NearMeButton />
 
         {hasLocation && (
           <div className="mt-4">
