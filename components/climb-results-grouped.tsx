@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Stars } from "@/components/stars";
+import { blendRating } from "@/lib/ratings";
 
 // Mirrors the columns of public.climbs_index (what search_climbs returns).
 export type ClimbResult = {
@@ -21,6 +22,8 @@ export type ClimbResult = {
   path_tokens?: string[] | null;
   curated_stars?: number | null;
   curated_votes?: number | null;
+  ugc_stars?: number | null;
+  ugc_votes?: number | null;
 };
 
 type Group = {
@@ -108,6 +111,7 @@ export function ClimbResultsGrouped({ climbs }: { climbs: ClimbResult[] }) {
             {g.climbs.map((c) => {
               const grade = c.yds ?? c.vscale ?? "—";
               const type = formatType(c);
+              const rating = blendRating(c);
               return (
                 <li key={c.uuid}>
                   <Link
@@ -122,13 +126,10 @@ export function ClimbResultsGrouped({ climbs }: { climbs: ClimbResult[] }) {
                         {grade}
                       </span>
                     </div>
-                    {(type || c.curated_votes) && (
+                    {(type || rating.votes > 0) && (
                       <div className="text-sm text-stone-500 dark:text-stone-400 mt-0.5 flex flex-wrap items-baseline gap-x-3">
                         {type && <span>{type}</span>}
-                        <Stars
-                          stars={c.curated_stars}
-                          votes={c.curated_votes}
-                        />
+                        <Stars {...rating} />
                       </div>
                     )}
                   </Link>

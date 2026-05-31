@@ -8,20 +8,19 @@ import { BookmarkButton } from "@/components/bookmark-button";
 import { TickForm } from "@/components/tick-form";
 import { MapToggle } from "@/components/map-toggle";
 import { Stars } from "@/components/stars";
+import { RateClimb } from "@/components/rate-climb";
 import { coordsOf } from "@/lib/geo";
+import { blendRating, type RatingSource } from "@/lib/ratings";
 import { createClient } from "@/lib/supabase/server";
 
-type ClimbRating = {
-  curated_stars: number | null;
-  curated_votes: number | null;
-};
+type ClimbRatingRow = RatingSource;
 
-async function fetchRating(uuid: string): Promise<ClimbRating | null> {
+async function fetchRating(uuid: string): Promise<ClimbRatingRow | null> {
   try {
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("climbs_index")
-      .select("curated_stars, curated_votes")
+      .select("curated_stars, curated_votes, ugc_stars, ugc_votes")
       .eq("uuid", uuid)
       .maybeSingle();
     if (error) throw error;
@@ -29,6 +28,35 @@ async function fetchRating(uuid: string): Promise<ClimbRating | null> {
   } catch (err) {
     console.error("Climb rating fetch failed (non-fatal):", err);
     return null;
+  }
+}
+
+// The signed-in user's own rating for this climb (1–5), or null if
+// they haven't rated it (or aren't signed in). Used to pre-fill the
+// RateClimb input.
+async function fetchUserRating(uuid: string): Promise<number | null> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("climb_ratings")
+      .select("stars")
+      .eq("climb_uuid", uuid)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.stars ?? null;
+  } catch (err) {
+    console.error("User rating fetch failed (non-fatal):", err);
+    return null;
+  }
+}
+
+async function fetchSignedIn(): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    return !!data.user;
+  } catch {
+    return false;
   }
 }
 
@@ -174,8 +202,15 @@ export default async function ClimbPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  // OpenBeta detail and Supabase rating in parallel — independent calls.
-  const [climb, rating] = await Promise.all([fetchClimb(id), fetchRating(id)]);
+  // OpenBeta detail + aggregate rating + this user's own rating +
+  // sign-in status, all independent — fire in parallel.
+  const [climb, rating, userRating, signedIn] = await Promise.all([
+    fetchClimb(id),
+    fetchRating(id),
+    fetchUserRating(id),
+    fetchSignedIn(),
+  ]);
+  const blended = rating ? blendRating(rating) : null;
 
   if (!climb) {
     return (
@@ -249,11 +284,7 @@ export default async function ClimbPage({
             {climb.name}
           </h1>
           <span className="flex items-baseline gap-3 shrink-0">
-            <Stars
-              stars={rating?.curated_stars}
-              votes={rating?.curated_votes}
-              size="md"
-            />
+            {blended && <Stars {...blended} size="md" />}
             <span className="text-2xl font-mono text-stone-700 dark:text-stone-300">
               {grade}
             </span>
@@ -292,6 +323,13 @@ export default async function ClimbPage({
             // Full climb payload — written to IndexedDB on save so
             // the page can be rebuilt offline from this snapshot.
             snapshot={climb}
+          />
+        </div>
+        <div className="mt-3">
+          <RateClimb
+            climbUuid={climb.uuid}
+            initial={userRating}
+            signedIn={signedIn}
           />
         </div>
         <div className="mt-3">

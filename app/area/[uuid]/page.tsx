@@ -12,9 +12,8 @@ import { gradeToNumber } from "@/lib/grades";
 import { coordsOf } from "@/lib/geo";
 import { parseTypeFilter } from "@/lib/climb-types";
 import { locationKey, resolveLocations } from "@/lib/geocoding";
+import { blendRating, type RatingSource } from "@/lib/ratings";
 import { createClient } from "@/lib/supabase/server";
-
-type Rating = { stars: number | null; votes: number | null };
 
 type Climb = {
   id: string;
@@ -192,23 +191,27 @@ export default async function AreaPage({
     return locations.get(locationKey(meta.lat, meta.lng));
   }
 
-  // Pull curated star ratings for every climb in this area in one shot.
-  // Non-fatal: if Supabase is unreachable or a climb isn't in the index
-  // we just don't render the badge for those rows.
-  const ratings = new Map<string, Rating>();
+  // Pull star ratings for every climb in this area in one shot — both
+  // the curated 2020 baseline and UGC aggregates. The row goes straight
+  // into blendRating at render time. Non-fatal: if Supabase is
+  // unreachable or a climb isn't in the index we just don't render the
+  // badge for those rows.
+  const ratings = new Map<string, RatingSource>();
   const climbUuids = area?.climbs?.map((c) => c.uuid) ?? [];
   if (climbUuids.length > 0) {
     try {
       const supabase = await createClient();
       const { data, error } = await supabase
         .from("climbs_index")
-        .select("uuid, curated_stars, curated_votes")
+        .select("uuid, curated_stars, curated_votes, ugc_stars, ugc_votes")
         .in("uuid", climbUuids);
       if (error) throw error;
       for (const r of data ?? []) {
         ratings.set(r.uuid, {
-          stars: r.curated_stars,
-          votes: r.curated_votes,
+          curated_stars: r.curated_stars,
+          curated_votes: r.curated_votes,
+          ugc_stars: r.ugc_stars,
+          ugc_votes: r.ugc_votes,
         });
       }
     } catch (err) {
@@ -443,7 +446,7 @@ function ClimbsSection({
   climbs: Climb[];
   filter: string;
   typeFilter: Set<string>;
-  ratings: Map<string, Rating>;
+  ratings: Map<string, RatingSource>;
 }) {
   const matches = climbs.filter((c) => {
     if (filter && !c.name.toLowerCase().includes(filter.toLowerCase())) {
@@ -548,9 +551,10 @@ function ClimbRow({
   rating,
 }: {
   climb: Climb;
-  rating: Rating | undefined;
+  rating: RatingSource | undefined;
 }) {
   const grade = climb.grades?.yds ?? climb.grades?.vscale ?? "—";
+  const blended = rating ? blendRating(rating) : null;
   const type = formatClimbType(climb.type);
   const pitchCount = climb.pitches?.length ?? 0;
   // R/X are the danger ratings climbers actually care about. "runout" is
@@ -593,7 +597,7 @@ function ClimbRow({
             {climb.name}
           </span>
           <span className="flex items-baseline gap-3 shrink-0">
-            <Stars stars={rating?.stars} votes={rating?.votes} />
+            {blended && <Stars {...blended} />}
             <span className="text-sm text-stone-500 dark:text-stone-400 font-mono">
               {grade}
             </span>

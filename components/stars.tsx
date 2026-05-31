@@ -1,13 +1,14 @@
 /**
- * Star-rating badge for a climb. Renders "★ 4.5 (38)" using the
- * curated rating average and vote count from climbs_index. Renders
- * nothing when no rating exists, so callers can drop it inline without
- * guards.
+ * Star-rating badge for a climb. Renders "★ 4.5 (38)" from a blended
+ * value — caller computes the blend with lib/ratings.blendRating and
+ * spreads the result, e.g.:
  *
- * The numeric value is shown directly (no filled/empty 5-star
- * rendering): the source data mixes a 0–4 scale (per-state vote files)
- * with a 0–5 scale (curated boulder CSV), so a literal number is more
- * honest than implying a fixed scale.
+ *     <Stars {...blendRating(climbRow)} />
+ *
+ * Renders nothing when there's no rating data, so callers can drop it
+ * inline without guards. Numeric (not five-filled-or-empty stars)
+ * because the curated source mixes a 0–4 and 0–5 scale; a literal
+ * number doesn't imply either.
  */
 export function Stars({
   stars,
@@ -23,7 +24,7 @@ export function Stars({
   return (
     <span
       className={`inline-flex items-baseline gap-1 ${text} text-amber-600 dark:text-amber-400`}
-      title={`${stars.toFixed(2)} from ${votes} ${votes === 1 ? "vote" : "votes"} (MP, 2020)`}
+      title={`${stars.toFixed(2)} from ${votes} ${votes === 1 ? "vote" : "votes"}`}
     >
       <span aria-hidden>★</span>
       <span className="font-medium tabular-nums">{stars.toFixed(1)}</span>
