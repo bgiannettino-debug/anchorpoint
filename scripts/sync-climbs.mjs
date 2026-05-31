@@ -56,9 +56,16 @@ const UPSERT_BATCH = 1000;
 const PAGE_DELAY_MS = 200;
 // Retry transient failures (5xx, 429, network blips) so one hiccup
 // partway through an ~85-page crawl doesn't fail the whole run. OpenBeta
-// returns the occasional 502; without this the run dies and re-runs from
-// scratch.
-const MAX_RETRIES = 5;
+// returns the occasional 502/504; tuned to ride out roughly two minutes
+// of API flakiness (1+2+4+8+16+32+32+32 = 127s) before giving up on a
+// single request.
+const MAX_RETRIES = 8;
+const MAX_BACKOFF_MS = 32_000;
+// If a single page still fails after all retries, skip it and keep
+// crawling — losing 500 climbs from one page is far better than throwing
+// away 100k+ of upserted progress. Bail entirely only if we accumulate
+// this many skips (signals OpenBeta is sustainably down).
+const MAX_SKIPPED_PAGES = 5;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -78,7 +85,7 @@ async function fetchRetry(url, options, label) {
     } catch (err) {
       lastErr = err;
       if (attempt === MAX_RETRIES) break;
-      const wait = Math.min(1000 * 2 ** (attempt - 1), 16000);
+      const wait = Math.min(1000 * 2 ** (attempt - 1), MAX_BACKOFF_MS);
       console.warn(
         `  ${label} transient failure (attempt ${attempt}/${MAX_RETRIES}): ${err.message}; retrying in ${wait}ms`,
       );
@@ -184,6 +191,7 @@ async function main() {
   let offset = 0;
   let total = 0;
   let buffer = [];
+  let skippedPages = 0;
 
   async function flush() {
     if (buffer.length === 0) return;
@@ -195,7 +203,27 @@ async function main() {
 
   console.log(`Crawling ${OPENBETA_API} ...`);
   for (;;) {
-    const data = await gql(CRAWL_QUERY, { limit: PAGE_SIZE, offset });
+    let data;
+    try {
+      data = await gql(CRAWL_QUERY, { limit: PAGE_SIZE, offset });
+    } catch (err) {
+      // Page-level failure (OpenBeta down past our retry budget). Log,
+      // count it, and keep going — losing 500 climbs from one page is
+      // far better than losing the whole crawl. Bail only if it keeps
+      // happening, which would mean OpenBeta is sustainably down.
+      console.error(
+        `page offset=${offset} failed after retries: ${err.message}; skipping`,
+      );
+      skippedPages++;
+      if (skippedPages >= MAX_SKIPPED_PAGES) {
+        throw new Error(
+          `Aborting: ${skippedPages} pages failed in a row — OpenBeta appears to be down.`,
+        );
+      }
+      offset += PAGE_SIZE;
+      await sleep(PAGE_DELAY_MS);
+      continue;
+    }
     const areas = data?.areas ?? [];
     if (areas.length === 0) break;
 
@@ -241,27 +269,35 @@ async function main() {
   }
   await flush();
 
-  // Prune climbs removed from OpenBeta since this run began. Only reached
-  // after a full crawl succeeded (any page/upsert error throws above), so
-  // a partial failure can't wipe the index. count=exact returns the
-  // number deleted in the Content-Range header (e.g. "*/12").
-  const delRes = await fetch(
-    `${REST_URL}?updated_at=lt.${encodeURIComponent(runAt)}`,
-    {
-      method: "DELETE",
-      headers: { ...REST_HEADERS, Prefer: "count=exact,return=minimal" },
-    },
-  );
-  if (!delRes.ok) {
-    console.error(
-      `Prune failed (non-fatal) HTTP ${delRes.status}: ${await delRes.text()}`,
+  // Prune climbs removed from OpenBeta since this run began. Skip when
+  // any page was skipped — those climbs still have their old updated_at
+  // and would be wrongly pruned. count=exact returns the number deleted
+  // in the Content-Range header (e.g. "*/12").
+  if (skippedPages > 0) {
+    console.warn(
+      `Skipping prune: ${skippedPages} page(s) failed this run; their climbs would be wrongly deleted.`,
     );
   } else {
-    const pruned = delRes.headers.get("content-range")?.split("/")[1];
-    if (pruned && pruned !== "0") console.log(`Pruned ${pruned} stale climbs`);
+    const delRes = await fetch(
+      `${REST_URL}?updated_at=lt.${encodeURIComponent(runAt)}`,
+      {
+        method: "DELETE",
+        headers: { ...REST_HEADERS, Prefer: "count=exact,return=minimal" },
+      },
+    );
+    if (!delRes.ok) {
+      console.error(
+        `Prune failed (non-fatal) HTTP ${delRes.status}: ${await delRes.text()}`,
+      );
+    } else {
+      const pruned = delRes.headers.get("content-range")?.split("/")[1];
+      if (pruned && pruned !== "0") console.log(`Pruned ${pruned} stale climbs`);
+    }
   }
 
-  console.log(`Done. ${total} climbs indexed.`);
+  console.log(
+    `Done. ${total} climbs indexed${skippedPages ? ` (${skippedPages} page(s) skipped — re-run to fill)` : ""}.`,
+  );
 }
 
 main().catch((err) => {
