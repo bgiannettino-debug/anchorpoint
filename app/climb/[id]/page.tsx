@@ -10,6 +10,7 @@ import { DirectionsButton } from "@/components/directions-button";
 import { MapToggle } from "@/components/map-toggle";
 import { Stars } from "@/components/stars";
 import { RateClimb } from "@/components/rate-climb";
+import { WeatherForecast } from "@/components/weather-forecast";
 import { coordsOf } from "@/lib/geo";
 import { blendRating, type RatingSource } from "@/lib/ratings";
 import { createClient } from "@/lib/supabase/server";
@@ -346,6 +347,12 @@ export default async function ClimbPage({
             ancestorUuids={climb.ancestors.slice(0, -1)}
           />
         </div>
+
+        {mapCoords && (
+          <div className="mt-4">
+            <WeatherForecast lat={mapCoords.lat} lng={mapCoords.lng} />
+          </div>
+        )}
 
         {mapCoords && climb.parent && (
           <div className="mt-3">

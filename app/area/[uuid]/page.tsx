@@ -9,6 +9,7 @@ import { DirectionsButton } from "@/components/directions-button";
 import { MapToggle } from "@/components/map-toggle";
 import { Stars } from "@/components/stars";
 import { TypeFilterChips } from "@/components/type-filter-chips";
+import { WeatherForecast } from "@/components/weather-forecast";
 import { gradeToNumber } from "@/lib/grades";
 import { coordsOf } from "@/lib/geo";
 import { parseTypeFilter } from "@/lib/climb-types";
@@ -289,6 +290,11 @@ export default async function AreaPage({
                 );
               })()}
             </p>
+
+            <WeatherForecast
+              lat={area.metadata?.lat}
+              lng={area.metadata?.lng}
+            />
 
             {area.metadata?.lat != null && area.metadata?.lng != null && (
               <div className="mb-3">
