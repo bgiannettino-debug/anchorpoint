@@ -11,7 +11,7 @@ import { Stars } from "@/components/stars";
 import { TypeFilterChips } from "@/components/type-filter-chips";
 import { WeatherForecast } from "@/components/weather-forecast";
 import { gradeToNumber } from "@/lib/grades";
-import { coordsOf } from "@/lib/geo";
+import { coordsOf, haversineMiles } from "@/lib/geo";
 import { parseTypeFilter } from "@/lib/climb-types";
 import { locationKey, resolveLocations } from "@/lib/geocoding";
 import { blendRating, type RatingSource } from "@/lib/ratings";
@@ -291,16 +291,7 @@ export default async function AreaPage({
               })()}
             </p>
 
-            {/*
-              Only the "main" crag shows weather — sub-areas would
-              repeat the same forecast over and over for each wall /
-              sector. We use path depth as the heuristic: OpenBeta's
-              standard "USA → State → Crag" hierarchy puts main crags at
-              depth 3 (Smith Rock, Joshua Tree, The Gunks, …) and
-              sub-areas deeper. Country / state pages at depth 1–2
-              don't have meaningful crag-level coords either.
-            */}
-            {area.pathTokens.length === 3 && (
+            {isMainCragForWeather(area) && (
               <WeatherForecast
                 lat={area.metadata?.lat}
                 lng={area.metadata?.lng}
@@ -355,6 +346,44 @@ export default async function AreaPage({
       </div>
     </main>
   );
+}
+
+/**
+ * Decide whether to render the weather card on this area page. We want
+ * it on "main crags" (Smith Rock, Joshua Tree, …) but NOT on:
+ *   - sub-areas / specific walls (forecast would just repeat the crag's),
+ *   - regional containers like "Central Oregon" whose coords are a
+ *     state-region centroid, not a real climbing spot.
+ *
+ * OpenBeta doesn't tag areas as "crag" vs "container", so we infer it:
+ *
+ *   1. Path depth 3–4 — covers the typical "USA → State → Crag" and
+ *      "USA → State → Region → Crag" patterns. Excludes country/state
+ *      pages (depth ≤ 2) and most sub-areas (depth ≥ 5).
+ *   2. Has sub-area children — required so we can run check 3.
+ *   3. All children's coords cluster within ~10 km of the area itself —
+ *      this is what separates a crag (sub-walls a short walk apart)
+ *      from a region (sub-crags scattered across hundreds of miles).
+ *
+ * Edge cases: tiny single-wall crags with no sub-areas, and main crags
+ * whose children all have missing coords, both fall through to "no
+ * weather". Acceptable for now; user can navigate up if needed.
+ */
+function isMainCragForWeather(area: AreaDetail): boolean {
+  if (area.pathTokens.length < 3 || area.pathTokens.length > 4) return false;
+  const own = coordsOf(area.metadata);
+  if (!own) return false;
+  if (area.children.length === 0) return false;
+  let validChildren = 0;
+  for (const child of area.children) {
+    const childCoords = coordsOf(child.metadata);
+    if (!childCoords) continue;
+    validChildren++;
+    // ~10 km in miles. Sub-walls of a single crag fit comfortably under
+    // this; regional containers (state-region → many crags) don't.
+    if (haversineMiles(own, childCoords) > 6.2) return false;
+  }
+  return validChildren > 0;
 }
 
 function AreaMap({ area }: { area: AreaDetail }) {
