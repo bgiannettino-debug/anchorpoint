@@ -98,22 +98,38 @@ async function fetchRetry(url, options, label) {
   );
 }
 
-const CRAWL_QUERY = `
-  query Crawl($limit: Int!, $offset: Int!) {
+// Phase 1: just list the leaf area uuids. We can't use the nested
+// `climbs { metadata { mp_id } }` form here — OpenBeta's resolver for
+// climbs inside the bulk `areas` query always returns mp_id as null
+// (verified end-to-end). So this query intentionally fetches only
+// uuids; the actual climb data comes from Phase 2.
+const LIST_QUERY = `
+  query List($limit: Int!, $offset: Int!) {
     areas(filter: { leaf_status: { isLeaf: true } }, limit: $limit, offset: $offset) {
       uuid
-      area_name
-      pathTokens
-      climbs {
-        uuid
-        name
-        grades { yds vscale }
-        type { sport trad bouldering tr mixed ice aid alpine deepwatersolo }
-        metadata { lat lng mp_id }
-      }
     }
   }
 `;
+
+// Phase 2 sends batched aliased `area(uuid)` queries (the single-area
+// form DOES populate mp_id). Constants tuned to keep request size
+// modest and ride OpenBeta's flakiness — concurrency 5 hits ~150 areas
+// in flight at once across batches.
+const AREA_BATCH_SIZE = 30;
+const AREA_CONCURRENCY = 5;
+
+// Build a single GraphQL request that fetches up to AREA_BATCH_SIZE
+// areas in one round-trip via aliases (a0, a1, ...).
+function buildAreaBatchQuery(uuids) {
+  const fields =
+    `area_name pathTokens climbs { uuid name grades { yds vscale } ` +
+    `type { sport trad bouldering tr mixed ice aid alpine deepwatersolo } ` +
+    `metadata { lat lng mp_id } }`;
+  const aliases = uuids
+    .map((u, i) => `a${i}: area(uuid: "${u}") { uuid ${fields} }`)
+    .join(" ");
+  return `{ ${aliases} }`;
+}
 
 // Load the curated ratings snapshot (mp_id → [avgStars, voteCount]).
 // Optional — if the file isn't present (e.g. very first sync before
@@ -189,94 +205,136 @@ async function main() {
   // One timestamp for the whole run; every upserted row is stamped with
   // it so we can prune climbs that disappeared from OpenBeta afterward.
   const runAt = new Date().toISOString();
-  let offset = 0;
   let total = 0;
   let buffer = [];
   let skippedPages = 0;
+  let skippedBatches = 0;
 
   async function flush() {
     if (buffer.length === 0) return;
-    await upsert(buffer);
-    total += buffer.length;
+    // Atomically swap so multiple workers can call flush concurrently
+    // without losing rows between check and upsert.
+    const batch = buffer;
     buffer = [];
+    await upsert(batch);
+    total += batch.length;
     console.log(`  upserted ${total} climbs so far`);
   }
 
-  console.log(`Crawling ${OPENBETA_API} ...`);
+  // Phase 1: list every leaf area's uuid. The bulk `areas` query is
+  // fast (500 uuids per request, ~86 requests for the whole catalog),
+  // but doesn't fill mp_id — see LIST_QUERY for why.
+  console.log(`Listing leaf areas from ${OPENBETA_API} ...`);
+  const areaUuids = [];
+  let offset = 0;
   for (;;) {
     let data;
     try {
-      data = await gql(CRAWL_QUERY, { limit: PAGE_SIZE, offset });
+      data = await gql(LIST_QUERY, { limit: PAGE_SIZE, offset });
     } catch (err) {
-      // Page-level failure (OpenBeta down past our retry budget). Log,
-      // count it, and keep going — losing 500 climbs from one page is
-      // far better than losing the whole crawl. Bail only if it keeps
-      // happening, which would mean OpenBeta is sustainably down.
       console.error(
-        `page offset=${offset} failed after retries: ${err.message}; skipping`,
+        `list offset=${offset} failed after retries: ${err.message}; skipping`,
       );
       skippedPages++;
       if (skippedPages >= MAX_SKIPPED_PAGES) {
         throw new Error(
-          `Aborting: ${skippedPages} pages failed in a row — OpenBeta appears to be down.`,
+          `Aborting: ${skippedPages} list pages failed — OpenBeta appears to be down.`,
         );
       }
       offset += PAGE_SIZE;
       await sleep(PAGE_DELAY_MS);
       continue;
     }
-    const areas = data?.areas ?? [];
-    if (areas.length === 0) break;
-
-    for (const area of areas) {
-      for (const climb of area.climbs ?? []) {
-        if (!climb?.uuid || !climb?.name) continue;
-        const c = coords(climb.metadata);
-        const t = climb.type ?? {};
-        const mpId = climb.metadata?.mp_id ?? null;
-        const { stars, votes } = ratingFor(mpId);
-        buffer.push({
-          uuid: climb.uuid,
-          name: climb.name,
-          yds: climb.grades?.yds ?? null,
-          vscale: climb.grades?.vscale ?? null,
-          sport: t.sport ?? null,
-          trad: t.trad ?? null,
-          bouldering: t.bouldering ?? null,
-          tr: t.tr ?? null,
-          mixed: t.mixed ?? null,
-          ice: t.ice ?? null,
-          aid: t.aid ?? null,
-          alpine: t.alpine ?? null,
-          deepwatersolo: t.deepwatersolo ?? null,
-          area_uuid: area.uuid,
-          area_name: area.area_name,
-          path_tokens: area.pathTokens ?? null,
-          lat: c.lat,
-          lng: c.lng,
-          mp_id: mpId,
-          curated_stars: stars,
-          curated_votes: votes,
-          updated_at: runAt,
-        });
-        if (buffer.length >= UPSERT_BATCH) await flush();
-      }
-    }
-
-    console.log(`page offset=${offset}: ${areas.length} crags`);
+    const got = data?.areas ?? [];
+    if (got.length === 0) break;
+    for (const a of got) if (a?.uuid) areaUuids.push(a.uuid);
     offset += PAGE_SIZE;
-    if (areas.length < PAGE_SIZE) break; // short page → last page
+    if (got.length < PAGE_SIZE) break;
     await sleep(PAGE_DELAY_MS);
   }
+  console.log(`Discovered ${areaUuids.length} leaf areas.`);
+
+  // Phase 2: fetch the climbs of each area via aliased `area(uuid)`
+  // queries (this resolver DOES populate mp_id, unlike `areas`). N
+  // concurrent workers pull batches off a shared cursor.
+  const batches = [];
+  for (let i = 0; i < areaUuids.length; i += AREA_BATCH_SIZE) {
+    batches.push(areaUuids.slice(i, i + AREA_BATCH_SIZE));
+  }
+  console.log(
+    `Fetching climbs in ${batches.length} batches of up to ${AREA_BATCH_SIZE} (concurrency ${AREA_CONCURRENCY}) ...`,
+  );
+
+  let nextBatch = 0;
+  async function worker() {
+    for (;;) {
+      const idx = nextBatch++;
+      if (idx >= batches.length) return;
+      const uuids = batches[idx];
+      let data;
+      try {
+        data = await gql(buildAreaBatchQuery(uuids), {});
+      } catch (err) {
+        console.error(
+          `batch ${idx} (${uuids.length} areas) failed after retries: ${err.message}; skipping`,
+        );
+        skippedBatches++;
+        continue;
+      }
+      // Aliased response: { a0: {...}, a1: {...} ... } — iterate.
+      for (const key of Object.keys(data ?? {})) {
+        const area = data[key];
+        if (!area?.uuid) continue;
+        for (const climb of area.climbs ?? []) {
+          if (!climb?.uuid || !climb?.name) continue;
+          const c = coords(climb.metadata);
+          const t = climb.type ?? {};
+          const mpId = climb.metadata?.mp_id ?? null;
+          const { stars, votes } = ratingFor(mpId);
+          buffer.push({
+            uuid: climb.uuid,
+            name: climb.name,
+            yds: climb.grades?.yds ?? null,
+            vscale: climb.grades?.vscale ?? null,
+            sport: t.sport ?? null,
+            trad: t.trad ?? null,
+            bouldering: t.bouldering ?? null,
+            tr: t.tr ?? null,
+            mixed: t.mixed ?? null,
+            ice: t.ice ?? null,
+            aid: t.aid ?? null,
+            alpine: t.alpine ?? null,
+            deepwatersolo: t.deepwatersolo ?? null,
+            area_uuid: area.uuid,
+            area_name: area.area_name,
+            path_tokens: area.pathTokens ?? null,
+            lat: c.lat,
+            lng: c.lng,
+            mp_id: mpId,
+            curated_stars: stars,
+            curated_votes: votes,
+            updated_at: runAt,
+          });
+          if (buffer.length >= UPSERT_BATCH) await flush();
+        }
+      }
+      if ((idx + 1) % 25 === 0) {
+        console.log(`  batches ${idx + 1}/${batches.length} done`);
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: AREA_CONCURRENCY }, () => worker()),
+  );
   await flush();
 
   // Prune climbs removed from OpenBeta since this run began. Skip when
-  // any page was skipped — those climbs still have their old updated_at
-  // and would be wrongly pruned. count=exact returns the number deleted
-  // in the Content-Range header (e.g. "*/12").
-  if (skippedPages > 0) {
+  // ANY list page or fetch batch was skipped — those climbs still have
+  // their old updated_at and would be wrongly pruned. count=exact
+  // returns the number deleted in the Content-Range header.
+  if (skippedPages > 0 || skippedBatches > 0) {
     console.warn(
-      `Skipping prune: ${skippedPages} page(s) failed this run; their climbs would be wrongly deleted.`,
+      `Skipping prune: ${skippedPages} list page(s) + ${skippedBatches} fetch batch(es) failed this run; their climbs would be wrongly deleted.`,
     );
   } else {
     const delRes = await fetch(
@@ -296,9 +354,11 @@ async function main() {
     }
   }
 
-  console.log(
-    `Done. ${total} climbs indexed${skippedPages ? ` (${skippedPages} page(s) skipped — re-run to fill)` : ""}.`,
-  );
+  const skipNote =
+    skippedPages || skippedBatches
+      ? ` (${skippedPages} list page(s) + ${skippedBatches} fetch batch(es) skipped — re-run to fill)`
+      : "";
+  console.log(`Done. ${total} climbs indexed${skipNote}.`);
 }
 
 main().catch((err) => {
