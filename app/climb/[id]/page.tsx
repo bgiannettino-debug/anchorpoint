@@ -6,6 +6,7 @@ import { gql } from "@apollo/client";
 import { getClient } from "@/lib/apollo-client";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { TickForm } from "@/components/tick-form";
+import { DirectionsButton } from "@/components/directions-button";
 import { MapToggle } from "@/components/map-toggle";
 import { Stars } from "@/components/stars";
 import { RateClimb } from "@/components/rate-climb";
@@ -324,6 +325,9 @@ export default async function ClimbPage({
             // the page can be rebuilt offline from this snapshot.
             snapshot={climb}
           />
+          {mapCoords && (
+            <DirectionsButton lat={mapCoords.lat} lng={mapCoords.lng} />
+          )}
         </div>
         <div className="mt-3">
           <RateClimb

@@ -5,6 +5,7 @@ import { gql } from "@apollo/client";
 import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { BookmarkButton } from "@/components/bookmark-button";
+import { DirectionsButton } from "@/components/directions-button";
 import { MapToggle } from "@/components/map-toggle";
 import { Stars } from "@/components/stars";
 import { TypeFilterChips } from "@/components/type-filter-chips";
@@ -288,6 +289,15 @@ export default async function AreaPage({
                 );
               })()}
             </p>
+
+            {area.metadata?.lat != null && area.metadata?.lng != null && (
+              <div className="mb-3">
+                <DirectionsButton
+                  lat={area.metadata.lat}
+                  lng={area.metadata.lng}
+                />
+              </div>
+            )}
 
             <AreaMap area={area} />
 
