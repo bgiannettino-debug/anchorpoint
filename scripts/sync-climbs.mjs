@@ -18,6 +18,15 @@
 // WebSocket client on createClient(), which throws on Node < 22 ("no
 // native WebSocket support"). This script only does batch upserts/deletes
 // — no realtime — so REST keeps it dependency-free and Node-version-proof.
+//
+// Star ratings: each climb's OpenBeta `metadata.mp_id` is looked up in
+// data/curated-ratings.json (built by scripts/extract-curated-ratings.mjs
+// from OpenBeta's static 2020 community ratings) and written into the
+// curated_stars / curated_votes columns. Climbs without an mp_id, or
+// whose mp_id isn't in the snapshot, get null ratings — the UI hides
+// the badge for those.
+
+import { readFileSync, existsSync } from "node:fs";
 
 const OPENBETA_API = process.env.OPENBETA_API ?? "https://api.openbeta.io";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
@@ -92,11 +101,34 @@ const CRAWL_QUERY = `
         name
         grades { yds vscale }
         type { sport trad bouldering tr mixed ice aid alpine deepwatersolo }
-        metadata { lat lng }
+        metadata { lat lng mp_id }
       }
     }
   }
 `;
+
+// Load the curated ratings snapshot (mp_id → [avgStars, voteCount]).
+// Optional — if the file isn't present (e.g. very first sync before
+// extract-curated-ratings.mjs has been committed), we skip rating
+// joining and write nulls instead of failing the run.
+const RATINGS_PATH = "data/curated-ratings.json";
+const ratingsMap = existsSync(RATINGS_PATH)
+  ? JSON.parse(readFileSync(RATINGS_PATH, "utf8"))
+  : null;
+if (ratingsMap) {
+  console.log(
+    `Loaded ${Object.keys(ratingsMap).length} curated ratings from ${RATINGS_PATH}`,
+  );
+} else {
+  console.warn(`No ${RATINGS_PATH} found — climbs will sync without ratings.`);
+}
+
+function ratingFor(mpId) {
+  if (!mpId || !ratingsMap) return { stars: null, votes: null };
+  const r = ratingsMap[mpId];
+  if (!r) return { stars: null, votes: null };
+  return { stars: r[0], votes: r[1] };
+}
 
 async function gql(query, variables) {
   const res = await fetchRetry(
@@ -172,6 +204,8 @@ async function main() {
         if (!climb?.uuid || !climb?.name) continue;
         const c = coords(climb.metadata);
         const t = climb.type ?? {};
+        const mpId = climb.metadata?.mp_id ?? null;
+        const { stars, votes } = ratingFor(mpId);
         buffer.push({
           uuid: climb.uuid,
           name: climb.name,
@@ -191,6 +225,9 @@ async function main() {
           path_tokens: area.pathTokens ?? null,
           lat: c.lat,
           lng: c.lng,
+          mp_id: mpId,
+          curated_stars: stars,
+          curated_votes: votes,
           updated_at: runAt,
         });
         if (buffer.length >= UPSERT_BATCH) await flush();

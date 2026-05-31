@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Stars } from "@/components/stars";
 
 // Mirrors the columns of public.climbs_index (what search_climbs returns).
 export type ClimbResult = {
@@ -18,6 +19,8 @@ export type ClimbResult = {
   area_uuid?: string | null;
   area_name?: string | null;
   path_tokens?: string[] | null;
+  curated_stars?: number | null;
+  curated_votes?: number | null;
 };
 
 type Group = {
@@ -119,9 +122,13 @@ export function ClimbResultsGrouped({ climbs }: { climbs: ClimbResult[] }) {
                         {grade}
                       </span>
                     </div>
-                    {type && (
-                      <div className="text-sm text-stone-500 dark:text-stone-400 mt-0.5">
-                        {type}
+                    {(type || c.curated_votes) && (
+                      <div className="text-sm text-stone-500 dark:text-stone-400 mt-0.5 flex flex-wrap items-baseline gap-x-3">
+                        {type && <span>{type}</span>}
+                        <Stars
+                          stars={c.curated_stars}
+                          votes={c.curated_votes}
+                        />
                       </div>
                     )}
                   </Link>
