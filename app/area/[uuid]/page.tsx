@@ -291,10 +291,21 @@ export default async function AreaPage({
               })()}
             </p>
 
-            <WeatherForecast
-              lat={area.metadata?.lat}
-              lng={area.metadata?.lng}
-            />
+            {/*
+              Only the "main" crag shows weather — sub-areas would
+              repeat the same forecast over and over for each wall /
+              sector. We use path depth as the heuristic: OpenBeta's
+              standard "USA → State → Crag" hierarchy puts main crags at
+              depth 3 (Smith Rock, Joshua Tree, The Gunks, …) and
+              sub-areas deeper. Country / state pages at depth 1–2
+              don't have meaningful crag-level coords either.
+            */}
+            {area.pathTokens.length === 3 && (
+              <WeatherForecast
+                lat={area.metadata?.lat}
+                lng={area.metadata?.lng}
+              />
+            )}
 
             {area.metadata?.lat != null && area.metadata?.lng != null && (
               <div className="mb-3">
