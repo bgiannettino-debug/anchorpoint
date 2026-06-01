@@ -189,9 +189,13 @@ export default async function Home({
     routes.map((r) => r.area_uuid ?? r.area_name ?? "—"),
   ).size;
 
-  // Batch-resolve City/State labels for every card on the page in one
-  // pass so AreaCard never has to round-trip Mapbox itself.
-  const allCoords = [...areas, ...nearResults]
+  // Batch-resolve City/State labels for only the cards we'll actually
+  // render — the near-me list is capped at NEAR_MAX_SHOWN (200) but
+  // only `shown` cards (default 20, plus NEAR_PAGE_SIZE per "Show
+  // more" click) are visible at a time. Geocoding the unrendered tail
+  // burned Mapbox quota and stretched cold-cache renders for no UI
+  // gain — the map pins below use raw lat/lng and don't need labels.
+  const allCoords = [...areas, ...nearResults.slice(0, shown)]
     .map((a) => a.metadata)
     .filter(
       (m): m is { lat: number; lng: number } =>
