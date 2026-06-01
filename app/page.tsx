@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
@@ -15,6 +16,7 @@ import {
 import { TypeFilterChips } from "@/components/type-filter-chips";
 import { GradeRangeFilter } from "@/components/grade-range-filter";
 import { WeatherForecast } from "@/components/weather-forecast";
+import { WeatherSkeleton } from "@/components/weather-skeleton";
 import { haversineMiles } from "@/lib/geo";
 import { parseTypeFilter } from "@/lib/climb-types";
 import {
@@ -398,7 +400,11 @@ export default async function Home({
 
         {hasLocation && (
           <div className="mt-4">
-            <WeatherForecast lat={userLat} lng={userLng} />
+            {/* Suspense lets the rest of the page paint instantly even
+                if Open-Meteo is slow. */}
+            <Suspense fallback={<WeatherSkeleton />}>
+              <WeatherForecast lat={userLat} lng={userLng} />
+            </Suspense>
           </div>
         )}
 

@@ -75,7 +75,10 @@ async function fetchFromMapbox(
     `&types=place,region,country`;
 
   try {
-    const res = await fetch(url);
+    // 2.5s cap — Mapbox is normally <200 ms, so anything past this is
+    // an outage. Without the cap, one slow upstream stalls a whole
+    // home render that geocodes many coords.
+    const res = await fetch(url, { signal: AbortSignal.timeout(2500) });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error(
