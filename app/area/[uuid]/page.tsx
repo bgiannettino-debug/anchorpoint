@@ -202,42 +202,20 @@ export default async function AreaPage({
       });
     }
   }
-  const locations = await resolveLocations(coordsToResolve);
+  // Geocoding + ratings are independent — both need data from the
+  // already-resolved area but neither needs the other. Run them in
+  // parallel so we pay one network round-trip's latency, not two.
+  const climbUuids = area?.climbs?.map((c) => c.uuid) ?? [];
+  const [locations, ratings] = await Promise.all([
+    resolveLocations(coordsToResolve),
+    fetchAreaRatings(climbUuids),
+  ]);
   function locationFor(
     meta: { lat?: number | null; lng?: number | null } | null | undefined,
   ) {
     if (meta?.lat == null || meta?.lng == null) return undefined;
     return locations.get(locationKey(meta.lat, meta.lng));
   }
-
-  // Pull star ratings for every climb in this area in one shot — both
-  // the curated 2020 baseline and UGC aggregates. The row goes straight
-  // into blendRating at render time. Non-fatal: if Supabase is
-  // unreachable or a climb isn't in the index we just don't render the
-  // badge for those rows.
-  const ratings = new Map<string, RatingSource>();
-  const climbUuids = area?.climbs?.map((c) => c.uuid) ?? [];
-  if (climbUuids.length > 0) {
-    try {
-      const supabase = await createClient();
-      const { data, error } = await supabase
-        .from("climbs_index")
-        .select("uuid, curated_stars, curated_votes, ugc_stars, ugc_votes")
-        .in("uuid", climbUuids);
-      if (error) throw error;
-      for (const r of data ?? []) {
-        ratings.set(r.uuid, {
-          curated_stars: r.curated_stars,
-          curated_votes: r.curated_votes,
-          ugc_stars: r.ugc_stars,
-          ugc_votes: r.ugc_votes,
-        });
-      }
-    } catch (err) {
-      console.error("Ratings fetch failed (non-fatal):", err);
-    }
-  }
-
   return (
     <main className="min-h-screen bg-stone-50 dark:bg-stone-950 p-8">
       <div className="max-w-4xl mx-auto">
@@ -389,6 +367,38 @@ export default async function AreaPage({
  * whose children all have missing coords, both fall through to "no
  * weather". Acceptable for now; user can navigate up if needed.
  */
+/**
+ * Bulk-fetch curated + UGC star ratings for every climb in an area in
+ * one Supabase round-trip. Non-fatal: if Supabase is unreachable or a
+ * climb isn't in the index we just return an empty Map and the badge
+ * won't render for those rows.
+ */
+async function fetchAreaRatings(
+  climbUuids: string[],
+): Promise<Map<string, RatingSource>> {
+  const out = new Map<string, RatingSource>();
+  if (climbUuids.length === 0) return out;
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("climbs_index")
+      .select("uuid, curated_stars, curated_votes, ugc_stars, ugc_votes")
+      .in("uuid", climbUuids);
+    if (error) throw error;
+    for (const r of data ?? []) {
+      out.set(r.uuid, {
+        curated_stars: r.curated_stars,
+        curated_votes: r.curated_votes,
+        ugc_stars: r.ugc_stars,
+        ugc_votes: r.ugc_votes,
+      });
+    }
+  } catch (err) {
+    console.error("Ratings fetch failed (non-fatal):", err);
+  }
+  return out;
+}
+
 function isMainCragForWeather(area: AreaDetail): boolean {
   if (area.pathTokens.length < 3 || area.pathTokens.length > 4) return false;
   const own = coordsOf(area.metadata);
