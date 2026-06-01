@@ -192,6 +192,37 @@ async function upsert(rows) {
   }
 }
 
+// Pre-parse YDS / V-scale grade strings to numerics so the search RPC
+// can compare them with cheap inequalities (no per-row regex). Mirrors
+// the logic in lib/grades.ts — kept inline here so the sync script
+// stays dependency-free and Node-version-proof.
+function parseYdsNum(g) {
+  if (!g) return null;
+  const m = g.trim().match(/^5\.(\d+)([a-d])?([+\-])?/i);
+  if (!m) return null;
+  let n = parseInt(m[1], 10);
+  const letter = m[2]?.toLowerCase();
+  if (letter === "b") n += 0.25;
+  else if (letter === "c") n += 0.5;
+  else if (letter === "d") n += 0.75;
+  if (m[3] === "+") n += 0.125;
+  else if (m[3] === "-") n -= 0.125;
+  return n;
+}
+function parseVNum(g) {
+  if (!g) return null;
+  const s = g.trim().toLowerCase();
+  if (s === "v-easy" || s === "veasy") return -1;
+  const r = s.match(/^v(\d+)-(\d+)$/);
+  if (r) return (parseInt(r[1], 10) + parseInt(r[2], 10)) / 2;
+  const m = s.match(/^v(\d+)([+\-])?$/);
+  if (!m) return null;
+  let n = parseInt(m[1], 10);
+  if (m[2] === "+") n += 0.5;
+  else if (m[2] === "-") n -= 0.25;
+  return n;
+}
+
 // Drop OpenBeta's 0,0 "null island" sentinel and any non-numeric coord.
 function coords(meta) {
   const lat = typeof meta?.lat === "number" ? meta.lat : null;
@@ -296,6 +327,13 @@ async function main() {
             name: climb.name,
             yds: climb.grades?.yds ?? null,
             vscale: climb.grades?.vscale ?? null,
+            // Numeric grades used by search_climbs's range bounds.
+            // Boulders sometimes have a V-grade stored in `yds`, so
+            // fall back to parsing yds as V if vscale is missing.
+            yds_num: parseYdsNum(climb.grades?.yds ?? null),
+            v_num:
+              parseVNum(climb.grades?.vscale ?? null) ??
+              parseVNum(climb.grades?.yds ?? null),
             sport: t.sport ?? null,
             trad: t.trad ?? null,
             bouldering: t.bouldering ?? null,

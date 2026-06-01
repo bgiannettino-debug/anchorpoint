@@ -13,9 +13,16 @@ import {
   type ClimbResult,
 } from "@/components/climb-results-grouped";
 import { TypeFilterChips } from "@/components/type-filter-chips";
+import { GradeRangeFilter } from "@/components/grade-range-filter";
 import { WeatherForecast } from "@/components/weather-forecast";
 import { haversineMiles } from "@/lib/geo";
 import { parseTypeFilter } from "@/lib/climb-types";
+import {
+  EMPTY_GRADE_RANGE,
+  gradeRangeToBounds,
+  parseGradeRange,
+  type GradeRange,
+} from "@/lib/grade-options";
 import { locationKey, resolveLocations } from "@/lib/geocoding";
 import { createClient } from "@/lib/supabase/server";
 import { gql } from "@apollo/client";
@@ -122,16 +129,14 @@ export default async function Home({
     shown?: string;
     mode?: string;
     type?: string;
+    ydsMin?: string;
+    ydsMax?: string;
+    vMin?: string;
+    vMax?: string;
   }>;
 }) {
-  const {
-    q,
-    lat,
-    lng,
-    shown: shownRaw,
-    mode: modeRaw,
-    type: typeRaw,
-  } = await searchParams;
+  const sp = await searchParams;
+  const { q, lat, lng, shown: shownRaw, mode: modeRaw, type: typeRaw } = sp;
   const query = q?.trim() ?? "";
   // "areas" (default) searches the OpenBeta area index; "routes" searches
   // our Supabase climbs_index by name. The two tabs above the search box
@@ -140,6 +145,10 @@ export default async function Home({
   // Discipline chips for Routes mode (Sport/Trad/Boulder/…). Only applied
   // when searching routes.
   const typeFilter = mode === "routes" ? parseTypeFilter(typeRaw) : new Set<string>();
+  // Grade range — Routes mode only. Areas search uses OpenBeta and has
+  // no notion of grade bounds.
+  const gradeRange: GradeRange =
+    mode === "routes" ? parseGradeRange(sp) : EMPTY_GRADE_RANGE;
 
   // Location and search are now independent. Location (lat/lng) always
   // drives the map + the near-me list; a query drives the search-results
@@ -224,9 +233,14 @@ export default async function Home({
   } else if (query && mode === "routes") {
     try {
       const supabase = await createClient();
+      const bounds = gradeRangeToBounds(gradeRange);
       const { data, error } = await supabase.rpc("search_climbs", {
         q: query,
         types: typeFilter.size > 0 ? Array.from(typeFilter) : null,
+        yds_min: bounds.ydsMin,
+        yds_max: bounds.ydsMax,
+        v_min: bounds.vMin,
+        v_max: bounds.vMax,
         max_results: 50,
       });
       if (error) throw error;
@@ -325,6 +339,19 @@ export default async function Home({
               value={Array.from(typeFilter).join(",")}
             />
           )}
+          {/* Carry the active grade range through a new search. */}
+          {mode === "routes" && gradeRange.ydsMin && (
+            <input type="hidden" name="ydsMin" value={gradeRange.ydsMin} />
+          )}
+          {mode === "routes" && gradeRange.ydsMax && (
+            <input type="hidden" name="ydsMax" value={gradeRange.ydsMax} />
+          )}
+          {mode === "routes" && gradeRange.vMin && (
+            <input type="hidden" name="vMin" value={gradeRange.vMin} />
+          )}
+          {mode === "routes" && gradeRange.vMax && (
+            <input type="hidden" name="vMax" value={gradeRange.vMax} />
+          )}
           <input
             type="search"
             name="q"
@@ -396,12 +423,42 @@ export default async function Home({
                       t,
                       query,
                       typeFilter,
+                      gradeRange,
                       hasLocation ? userLat : null,
                       hasLocation ? userLng : null,
                     )
                   }
                   ariaLabel="Filter routes by type"
                 />
+
+                <form action="" method="GET" className="mb-4">
+                  {/* Preserve everything else when the user changes
+                      grade bounds and submits. */}
+                  {query && <input type="hidden" name="q" value={query} />}
+                  <input type="hidden" name="mode" value="routes" />
+                  {typeFilter.size > 0 && (
+                    <input
+                      type="hidden"
+                      name="type"
+                      value={Array.from(typeFilter).join(",")}
+                    />
+                  )}
+                  {hasLocation && (
+                    <>
+                      <input type="hidden" name="lat" value={userLat} />
+                      <input type="hidden" name="lng" value={userLng} />
+                    </>
+                  )}
+                  <GradeRangeFilter range={gradeRange} label="Grade range" />
+                  <div className="text-right">
+                    <button
+                      type="submit"
+                      className="text-sm px-4 py-1.5 rounded-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                </form>
 
                 {routes.length === 0 ? (
                   <p className="text-stone-500 dark:text-stone-400">
@@ -534,12 +591,13 @@ function searchHref(
 }
 
 // Build a Routes-tab URL with one discipline chip toggled on/off,
-// preserving the query and location. Always sets mode=routes since the
-// chips only show there.
+// preserving the query, grade range, and location. Always sets
+// mode=routes since the chips only show there.
 function routeTypeHref(
   toggle: string,
   query: string,
   active: Set<string>,
+  gradeRange: GradeRange,
   userLat: number | null,
   userLng: number | null,
 ): string {
@@ -550,6 +608,10 @@ function routeTypeHref(
   if (query) p.set("q", query);
   p.set("mode", "routes");
   if (next.size > 0) p.set("type", Array.from(next).join(","));
+  if (gradeRange.ydsMin) p.set("ydsMin", gradeRange.ydsMin);
+  if (gradeRange.ydsMax) p.set("ydsMax", gradeRange.ydsMax);
+  if (gradeRange.vMin) p.set("vMin", gradeRange.vMin);
+  if (gradeRange.vMax) p.set("vMax", gradeRange.vMax);
   if (userLat !== null && userLng !== null) {
     p.set("lat", String(userLat));
     p.set("lng", String(userLng));
