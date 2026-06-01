@@ -1,12 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useSyncExternalStore } from "react";
 import {
   addBookmark,
   type Bookmark,
@@ -42,16 +37,37 @@ type Props = NewBookmark & {
   snapshot?: unknown;
 };
 
-const PILL_CLASSES =
-  "shrink-0 inline-flex items-center gap-1 text-sm px-3 py-1.5 rounded-full border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors";
-
 // Label + leading glyph for each status. Kept in one place so the
-// button, menu, and bookmarks page can share them.
+// button row, the menu (if anyone re-adds one), and the bookmarks
+// page can share them.
 export const STATUS_LABELS: Record<BookmarkStatus, string> = {
   bookmark: "★ Saved",
   project: "▶ Project",
   wishlist: "○ Wishlist",
 };
+
+// Compact relative formatter used by the Mark-attempt button's
+// tooltip + the /bookmarks page row.
+export function formatRelative(ms: number): string {
+  const diff = Date.now() - ms;
+  const day = 86_400_000;
+  if (diff < day) return "today";
+  const d = Math.round(diff / day);
+  if (d === 1) return "yesterday";
+  if (d < 7) return `${d}d ago`;
+  if (d < 30) return `${Math.round(d / 7)}w ago`;
+  if (d < 365) return `${Math.round(d / 30)}mo ago`;
+  return `${Math.round(d / 365)}y ago`;
+}
+
+const CHIP_BASE =
+  "shrink-0 inline-flex items-center text-sm px-3 py-1.5 rounded-full transition-colors";
+const CHIP_INACTIVE =
+  `${CHIP_BASE} border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50`;
+const CHIP_ACTIVE =
+  `${CHIP_BASE} bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium border border-stone-900 dark:border-stone-100`;
+const CHIP_REMOVE =
+  `${CHIP_BASE} border border-stone-300 dark:border-stone-700 text-stone-500 dark:text-stone-400 hover:border-red-400 dark:hover:border-red-700 hover:text-red-700 dark:hover:text-red-400`;
 
 export function BookmarkButton(props: Props) {
   const auth = useSyncExternalStore(
@@ -63,7 +79,7 @@ export function BookmarkButton(props: Props) {
   if (auth.status === "loading") {
     // Reserve the same footprint so the layout doesn't jump on hydration.
     return (
-      <span className={`${PILL_CLASSES} opacity-0`} aria-hidden="true">
+      <span className={`${CHIP_INACTIVE} opacity-0`} aria-hidden="true">
         ☆ Save
       </span>
     );
@@ -71,7 +87,7 @@ export function BookmarkButton(props: Props) {
 
   if (auth.status === "signed-out") {
     return (
-      <Link href="/login" className={PILL_CLASSES}>
+      <Link href="/login" className={CHIP_INACTIVE}>
         Sign in to save
       </Link>
     );
@@ -112,7 +128,7 @@ function BookmarkButtonSignedIn(props: Props) {
         type="button"
         onClick={() => void handleAdd()}
         aria-pressed={false}
-        className={PILL_CLASSES}
+        className={CHIP_INACTIVE}
       >
         ☆ Save
       </button>
@@ -120,145 +136,87 @@ function BookmarkButtonSignedIn(props: Props) {
   }
 
   return (
-    <SavedMenu
+    <StatusChips
       bookmark={found}
-      onChangeStatus={(s) => void setBookmarkStatus(found.type, found.uuid, s)}
+      isClimb={props.type === "climb"}
+      onSetStatus={(s) => void setBookmarkStatus(found.type, found.uuid, s)}
       onRecordAttempt={() => void recordAttempt(found.type, found.uuid)}
       onRemove={() => void handleRemove()}
     />
   );
 }
 
-function SavedMenu({
+/**
+ * Segmented status picker. Three labeled chips, current one filled —
+ * tapping any chip sets that status (or no-ops if it's already
+ * active). Mark-attempt sits inline for project-status climbs, and
+ * Remove is a quiet outline chip after the row so it's discoverable
+ * but not the loudest thing on the page.
+ */
+function StatusChips({
   bookmark,
-  onChangeStatus,
+  isClimb,
+  onSetStatus,
   onRecordAttempt,
   onRemove,
 }: {
   bookmark: Bookmark;
-  onChangeStatus: (s: BookmarkStatus) => void;
+  isClimb: boolean;
+  onSetStatus: (s: BookmarkStatus) => void;
   onRecordAttempt: () => void;
   onRemove: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Close the menu on clicks anywhere outside it, including taps that
-  // land on a different status's button on the same page.
-  useEffect(() => {
-    if (!open) return;
-    function onDocClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    function onEsc(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onEsc);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onEsc);
-    };
-  }, [open]);
-
-  const isProjectClimb =
-    bookmark.status === "project" && bookmark.type === "climb";
+  const STATUSES: readonly BookmarkStatus[] = [
+    "bookmark",
+    "project",
+    "wishlist",
+  ] as const;
+  const isProjectClimb = bookmark.status === "project" && isClimb;
 
   return (
-    <span ref={ref} className="relative inline-flex items-center gap-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className={PILL_CLASSES}
-      >
-        <span>{STATUS_LABELS[bookmark.status]}</span>
-        <span aria-hidden className="text-stone-400 dark:text-stone-500">
-          ▾
-        </span>
-      </button>
-      {/* Quick "I tried it" button shown inline only for project-status
-          climbs. Areas don't get this — "attempt" is per-route. */}
+    <div
+      role="group"
+      aria-label="Bookmark status"
+      className="inline-flex flex-wrap items-center gap-2"
+    >
+      {STATUSES.map((s) => {
+        const active = bookmark.status === s;
+        return (
+          <button
+            key={s}
+            type="button"
+            onClick={() => {
+              if (!active) onSetStatus(s);
+            }}
+            aria-pressed={active}
+            className={active ? CHIP_ACTIVE : CHIP_INACTIVE}
+          >
+            {STATUS_LABELS[s]}
+          </button>
+        );
+      })}
       {isProjectClimb && (
         <button
           type="button"
           onClick={onRecordAttempt}
-          className={PILL_CLASSES}
+          className={CHIP_INACTIVE}
           title={
             bookmark.lastAttemptAt
               ? `Last attempt ${formatRelative(bookmark.lastAttemptAt)}`
-              : undefined
+              : "Stamp this attempt with today's date"
           }
         >
           Mark attempt
         </button>
       )}
-      {open && (
-        <div
-          role="menu"
-          className="absolute top-full left-0 mt-1 w-44 rounded-lg border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-md z-20 py-1 text-sm"
-        >
-          {(["bookmark", "project", "wishlist"] as const).map((s) => {
-            const active = bookmark.status === s;
-            return (
-              <button
-                key={s}
-                type="button"
-                role="menuitemradio"
-                aria-checked={active}
-                onClick={() => {
-                  onChangeStatus(s);
-                  setOpen(false);
-                }}
-                className={`w-full text-left px-3 py-2 hover:bg-stone-50 dark:hover:bg-stone-800/60 ${
-                  active
-                    ? "font-medium text-stone-900 dark:text-stone-100"
-                    : "text-stone-700 dark:text-stone-200"
-                }`}
-              >
-                {STATUS_LABELS[s]}
-                {active && (
-                  <span
-                    aria-hidden
-                    className="ml-2 text-stone-400 dark:text-stone-500"
-                  >
-                    ✓
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          <div className="border-t border-stone-200 dark:border-stone-800 my-1" />
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              onRemove();
-              setOpen(false);
-            }}
-            className="w-full text-left px-3 py-2 hover:bg-stone-50 dark:hover:bg-stone-800/60 text-red-700 dark:text-red-400"
-          >
-            Remove
-          </button>
-        </div>
-      )}
-    </span>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label="Remove from bookmarks"
+        className={CHIP_REMOVE}
+      >
+        Remove
+      </button>
+    </div>
   );
-}
-
-// Compact relative formatter for last-attempt timestamps. Kept here so
-// the button's tooltip can match the /bookmarks page row.
-export function formatRelative(ms: number): string {
-  const diff = Date.now() - ms;
-  const day = 86_400_000;
-  if (diff < day) return "today";
-  const d = Math.round(diff / day);
-  if (d === 1) return "yesterday";
-  if (d < 7) return `${d}d ago`;
-  if (d < 30) return `${Math.round(d / 7)}w ago`;
-  if (d < 365) return `${Math.round(d / 30)}mo ago`;
-  return `${Math.round(d / 365)}y ago`;
 }
