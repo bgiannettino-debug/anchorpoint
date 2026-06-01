@@ -8,6 +8,12 @@ import type {
 
 export type BookmarkType = "area" | "climb";
 
+// Free-form "what is this saved as" tag. Default ("bookmark") is just a
+// save-for-later; "project" means actively working it (the climb page
+// shows a Mark-attempt button); "wishlist" is aspirational. "Sent"
+// isn't here — that's implied by having a tick for the climb.
+export type BookmarkStatus = "bookmark" | "project" | "wishlist";
+
 export type Bookmark = {
   type: BookmarkType;
   uuid: string;
@@ -22,6 +28,11 @@ export type Bookmark = {
   ancestorUuids?: string[];
   // ms epoch; used to sort most-recently-bookmarked first.
   addedAt: number;
+  status: BookmarkStatus;
+  notes?: string;
+  // ms epoch of the last "Mark attempt" tap. Only meaningful for
+  // project-status bookmarks; the UI renders "Last tried Xd ago" from it.
+  lastAttemptAt?: number;
 };
 
 type Row = {
@@ -33,6 +44,9 @@ type Row = {
   parent_name: string | null;
   ancestor_uuids: string[] | null;
   added_at: string;
+  status: BookmarkStatus | null;
+  notes: string | null;
+  last_attempt_at: string | null;
 };
 
 const EMPTY: Bookmark[] = [];
@@ -67,6 +81,11 @@ function rowToBookmark(row: Row): Bookmark {
     parentName: row.parent_name ?? undefined,
     ancestorUuids: row.ancestor_uuids ?? undefined,
     addedAt: new Date(row.added_at).getTime(),
+    status: row.status ?? "bookmark",
+    notes: row.notes ?? undefined,
+    lastAttemptAt: row.last_attempt_at
+      ? new Date(row.last_attempt_at).getTime()
+      : undefined,
   };
 }
 
@@ -74,7 +93,7 @@ async function fetchBookmarks(userId: string) {
   const { data, error } = await getSupabase()
     .from("bookmarks")
     .select(
-      "kind, uuid, name, grade, parent_uuid, parent_name, ancestor_uuids, added_at",
+      "kind, uuid, name, grade, parent_uuid, parent_name, ancestor_uuids, added_at, status, notes, last_attempt_at",
     )
     .eq("user_id", userId);
   if (error) {
@@ -202,15 +221,22 @@ export function isBookmarked(type: BookmarkType, uuid: string): boolean {
   return cache.some((b) => b.type === type && b.uuid === uuid);
 }
 
-export async function addBookmark(
-  b: Omit<Bookmark, "addedAt">,
-): Promise<void> {
+// Status is optional at the call site so existing add-from-search
+// callers don't have to specify it; it defaults to a plain bookmark
+// and the user changes it from the menu afterwards.
+export type NewBookmark = Omit<Bookmark, "addedAt" | "status"> & {
+  status?: BookmarkStatus;
+};
+
+export async function addBookmark(b: NewBookmark): Promise<void> {
   if (!currentUserId) return;
   if (cache.some((x) => x.type === b.type && x.uuid === b.uuid)) return;
 
+  const status: BookmarkStatus = b.status ?? "bookmark";
+
   // Optimistic update so the UI reflects the click immediately. Realtime
   // will reconcile with a fresh fetch shortly after.
-  const optimistic: Bookmark = { ...b, addedAt: Date.now() };
+  const optimistic: Bookmark = { ...b, addedAt: Date.now(), status };
   cache = [...cache, optimistic];
   notify();
 
@@ -223,6 +249,7 @@ export async function addBookmark(
     parent_uuid: b.parentUuid ?? null,
     parent_name: b.parentName ?? null,
     ancestor_uuids: b.ancestorUuids ?? null,
+    status,
   });
   // 23505 = unique_violation. That means it was already bookmarked
   // (e.g. another device just inserted it) — keep the optimistic state.
@@ -255,13 +282,90 @@ export async function removeBookmark(
 }
 
 /** Toggles and returns the new saved state. Now async since it hits the API. */
-export async function toggleBookmark(
-  b: Omit<Bookmark, "addedAt">,
-): Promise<boolean> {
+export async function toggleBookmark(b: NewBookmark): Promise<boolean> {
   if (isBookmarked(b.type, b.uuid)) {
     await removeBookmark(b.type, b.uuid);
     return false;
   }
   await addBookmark(b);
   return true;
+}
+
+export function getBookmark(
+  type: BookmarkType,
+  uuid: string,
+): Bookmark | undefined {
+  return cache.find((b) => b.type === type && b.uuid === uuid);
+}
+
+// Generic optimistic patch: applies the partial Bookmark change in the
+// in-memory cache first, then writes the matching column update to
+// Supabase, reverting on error. Used by the status / notes / attempt
+// helpers below — they're all the same shape on the wire.
+async function patchBookmark(
+  type: BookmarkType,
+  uuid: string,
+  patch: Partial<Bookmark>,
+  dbPatch: Record<string, unknown>,
+): Promise<void> {
+  if (!currentUserId) return;
+  const prev = cache;
+  const next = cache.map((b) =>
+    b.type === type && b.uuid === uuid ? { ...b, ...patch } : b,
+  );
+  if (next === prev) return;
+  cache = next;
+  notify();
+
+  const { error } = await getSupabase()
+    .from("bookmarks")
+    .update(dbPatch)
+    .match({ user_id: currentUserId, kind: type, uuid });
+  if (error) {
+    console.error("Failed to update bookmark:", error);
+    cache = prev;
+    notify();
+  }
+}
+
+export async function setBookmarkStatus(
+  type: BookmarkType,
+  uuid: string,
+  status: BookmarkStatus,
+): Promise<void> {
+  await patchBookmark(type, uuid, { status }, { status });
+}
+
+export async function setBookmarkNotes(
+  type: BookmarkType,
+  uuid: string,
+  notes: string,
+): Promise<void> {
+  // Empty string → null so the row is "no notes" rather than an empty
+  // string artifact.
+  const trimmed = notes.trim();
+  const value = trimmed.length > 0 ? trimmed : null;
+  await patchBookmark(
+    type,
+    uuid,
+    { notes: value ?? undefined },
+    { notes: value },
+  );
+}
+
+/**
+ * Stamp the bookmark's last_attempt_at to now. Climb pages call this
+ * from the Mark-attempt button so projects feel like a living list.
+ */
+export async function recordAttempt(
+  type: BookmarkType,
+  uuid: string,
+): Promise<void> {
+  const now = Date.now();
+  await patchBookmark(
+    type,
+    uuid,
+    { lastAttemptAt: now },
+    { last_attempt_at: new Date(now).toISOString() },
+  );
 }
