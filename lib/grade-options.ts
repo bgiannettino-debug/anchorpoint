@@ -73,16 +73,40 @@ export function isGradeRangeActive(r: GradeRange): boolean {
   return !!(r.ydsMin || r.ydsMax || r.vMin || r.vMax);
 }
 
-function ydsBound(label: string): number | null {
+// Public so callers building RPC arguments (e.g. the home Routes
+// search) can convert a chosen label into the numeric sort key the
+// climbs_index.yds_num / v_num columns store.
+export function ydsLabelToNumber(label: string): number | null {
   const i = YDS_GRADES.indexOf(label);
   if (i < 0) return null;
   return YDS_NUMS[i];
 }
 
-function vBound(label: string): number | null {
+export function vLabelToNumber(label: string): number | null {
   const i = V_GRADES.indexOf(label);
   if (i < 0) return null;
   return V_NUMS[i];
+}
+
+const ydsBound = ydsLabelToNumber;
+const vBound = vLabelToNumber;
+
+/**
+ * Convert a UI GradeRange into the four numeric bounds the
+ * search_climbs RPC accepts. Each is null when that field is unset.
+ */
+export function gradeRangeToBounds(r: GradeRange): {
+  ydsMin: number | null;
+  ydsMax: number | null;
+  vMin: number | null;
+  vMax: number | null;
+} {
+  return {
+    ydsMin: r.ydsMin ? ydsLabelToNumber(r.ydsMin) : null,
+    ydsMax: r.ydsMax ? ydsLabelToNumber(r.ydsMax) : null,
+    vMin: r.vMin ? vLabelToNumber(r.vMin) : null,
+    vMax: r.vMax ? vLabelToNumber(r.vMax) : null,
+  };
 }
 
 /**
