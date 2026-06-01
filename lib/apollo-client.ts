@@ -5,12 +5,15 @@ import {
   registerApolloClient,
 } from "@apollo/client-integration-nextjs";
 
-// Cap server-side OpenBeta requests at 4 seconds. Without this, a slow
-// upstream blocks the entire page render — typical pages already
-// show a loading skeleton from app/loading.tsx, but with no timeout
-// the actual content never paints. Pages that catch and render an
-// error UI on Apollo failure recover gracefully.
-const OPENBETA_TIMEOUT_MS = 4000;
+// Cap server-side OpenBeta requests so a hanging upstream can't block
+// a page render forever — but generous enough to absorb a Vercel
+// serverless cold start + mobile-network jitter (which together can
+// chew up several seconds before the upstream even responds). The
+// route-level loading.tsx gives users instant feedback during this
+// window, so the timeout's only job is to catch genuinely dead
+// upstreams; pages catch the resulting Apollo error and render their
+// "couldn't reach the climbing database" UI.
+const OPENBETA_TIMEOUT_MS = 8000;
 
 function fetchWithTimeout(
   input: RequestInfo | URL,
