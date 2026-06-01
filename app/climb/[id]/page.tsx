@@ -2,7 +2,9 @@ import { Fragment, Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
+import { cookies } from "next/headers";
 import { gql } from "@apollo/client";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getClient } from "@/lib/apollo-client";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { TickForm } from "@/components/tick-form";
@@ -17,10 +19,13 @@ import { blendRating, type RatingSource } from "@/lib/ratings";
 import { createClient } from "@/lib/supabase/server";
 
 type ClimbRatingRow = RatingSource;
+type Supabase = SupabaseClient;
 
-async function fetchRating(uuid: string): Promise<ClimbRatingRow | null> {
+async function fetchRating(
+  supabase: Supabase,
+  uuid: string,
+): Promise<ClimbRatingRow | null> {
   try {
-    const supabase = await createClient();
     const { data, error } = await supabase
       .from("climbs_index")
       .select("curated_stars, curated_votes, ugc_stars, ugc_votes")
@@ -35,11 +40,13 @@ async function fetchRating(uuid: string): Promise<ClimbRatingRow | null> {
 }
 
 // The signed-in user's own rating for this climb (1–5), or null if
-// they haven't rated it (or aren't signed in). Used to pre-fill the
-// RateClimb input.
-async function fetchUserRating(uuid: string): Promise<number | null> {
+// they haven't rated it (or aren't signed in). RLS limits the row to
+// the caller's own, so we don't need to filter by user_id here.
+async function fetchUserRating(
+  supabase: Supabase,
+  uuid: string,
+): Promise<number | null> {
   try {
-    const supabase = await createClient();
     const { data, error } = await supabase
       .from("climb_ratings")
       .select("stars")
@@ -53,9 +60,18 @@ async function fetchUserRating(uuid: string): Promise<number | null> {
   }
 }
 
-async function fetchSignedIn(): Promise<boolean> {
+// Cheap cookie-only check before paying for `auth.getUser()`'s network
+// round-trip. Signed-out users have no `sb-…-auth-token` cookie and
+// can skip the call entirely. Cookies can be stale/expired, so when
+// one exists we still validate via getUser() — only signed-out users
+// short-circuit.
+async function fetchSignedIn(supabase: Supabase): Promise<boolean> {
+  const jar = await cookies();
+  const hasAuthCookie = jar
+    .getAll()
+    .some((c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token"));
+  if (!hasAuthCookie) return false;
   try {
-    const supabase = await createClient();
     const { data } = await supabase.auth.getUser();
     return !!data.user;
   } catch {
@@ -205,13 +221,17 @@ export default async function ClimbPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  // OpenBeta detail + aggregate rating + this user's own rating +
-  // sign-in status, all independent — fire in parallel.
+  // Build one Supabase client and share it across the three
+  // Supabase-backed helpers (previously each constructed its own and
+  // called cookies() independently — three extra cookie reads per
+  // climb page render). OpenBeta detail + the three Supabase calls
+  // all fire in parallel.
+  const supabase = await createClient();
   const [climb, rating, userRating, signedIn] = await Promise.all([
     fetchClimb(id),
-    fetchRating(id),
-    fetchUserRating(id),
-    fetchSignedIn(),
+    fetchRating(supabase, id),
+    fetchUserRating(supabase, id),
+    fetchSignedIn(supabase),
   ]);
   const blended = rating ? blendRating(rating) : null;
 
