@@ -41,6 +41,37 @@ export function gradeToNumber(grade: string): number | null {
 }
 
 /**
+ * Convert a V-scale (Vermin / bouldering) grade string to a sortable
+ * number. Returns null if it can't be parsed.
+ *
+ * Handles the common shapes OpenBeta returns:
+ *   "V-easy" → -1     ("easier than V0")
+ *   "V0-"    → -0.25
+ *   "V0"     → 0
+ *   "V0+"    → 0.5
+ *   "V0-1"   → 0.5    (midpoint of a soft-grade range)
+ *   "V5"     → 5
+ *   "V12+"   → 12.5
+ */
+export function vScaleToNumber(grade: string): number | null {
+  const g = grade.trim().toLowerCase();
+  if (g === "v-easy" || g === "veasy") return -1;
+  // "v3-5" / "v3-4" — midpoint of the stated range.
+  const range = g.match(/^v(\d+)-(\d+)$/);
+  if (range) {
+    const lo = parseInt(range[1], 10);
+    const hi = parseInt(range[2], 10);
+    return (lo + hi) / 2;
+  }
+  const m = g.match(/^v(\d+)([+\-])?$/);
+  if (!m) return null;
+  const num = parseInt(m[1], 10);
+  if (m[2] === "+") return num + 0.5;
+  if (m[2] === "-") return num - 0.25;
+  return num;
+}
+
+/**
  * Given a list of YDS grade strings, return a human-readable range
  * like "5.7 – 5.13a" or "5.10b" (when all share a grade).
  * Returns null if none are parseable YDS grades (e.g. all V-grades).
