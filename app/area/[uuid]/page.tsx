@@ -13,6 +13,13 @@ import { WeatherForecast } from "@/components/weather-forecast";
 import { gradeToNumber } from "@/lib/grades";
 import { coordsOf, haversineMiles } from "@/lib/geo";
 import { parseTypeFilter } from "@/lib/climb-types";
+import {
+  climbInGradeRange,
+  isGradeRangeActive,
+  parseGradeRange,
+  type GradeRange,
+} from "@/lib/grade-options";
+import { GradeRangeFilter } from "@/components/grade-range-filter";
 import { locationKey, resolveLocations } from "@/lib/geocoding";
 import { blendRating, type RatingSource } from "@/lib/ratings";
 import { createClient } from "@/lib/supabase/server";
@@ -147,10 +154,19 @@ export default async function AreaPage({
   searchParams,
 }: {
   params: Promise<{ uuid: string }>;
-  searchParams: Promise<{ route?: string; type?: string }>;
+  searchParams: Promise<{
+    route?: string;
+    type?: string;
+    ydsMin?: string;
+    ydsMax?: string;
+    vMin?: string;
+    vMax?: string;
+  }>;
 }) {
   const { uuid } = await params;
-  const { route, type } = await searchParams;
+  const sp = await searchParams;
+  const { route, type } = sp;
+  const gradeRange = parseGradeRange(sp);
   const routeFilter = route?.trim() ?? "";
   const typeFilter = parseTypeFilter(type);
 
@@ -332,6 +348,7 @@ export default async function AreaPage({
                 climbs={area.climbs}
                 filter={routeFilter}
                 typeFilter={typeFilter}
+                gradeRange={gradeRange}
                 ratings={ratings}
               />
             )}
@@ -496,22 +513,36 @@ function ClimbsSection({
   climbs,
   filter,
   typeFilter,
+  gradeRange,
   ratings,
 }: {
   uuid: string;
   climbs: Climb[];
   filter: string;
   typeFilter: Set<string>;
+  gradeRange: GradeRange;
   ratings: Map<string, RatingSource>;
 }) {
+  const gradeActive = isGradeRangeActive(gradeRange);
   const matches = climbs.filter((c) => {
     if (filter && !c.name.toLowerCase().includes(filter.toLowerCase())) {
       return false;
     }
-    return climbMatchesTypeFilter(c, typeFilter);
+    if (!climbMatchesTypeFilter(c, typeFilter)) return false;
+    if (gradeActive) {
+      return climbInGradeRange(
+        {
+          yds: c.grades?.yds,
+          vscale: c.grades?.vscale,
+          bouldering: !!c.type?.bouldering,
+        },
+        gradeRange,
+      );
+    }
+    return true;
   });
 
-  const hasAnyFilter = filter !== "" || typeFilter.size > 0;
+  const hasAnyFilter = filter !== "" || typeFilter.size > 0 || gradeActive;
   const heading = hasAnyFilter
     ? `Climbs (${matches.length} of ${climbs.length})`
     : `Climbs (${climbs.length})`;
@@ -525,8 +556,9 @@ function ClimbsSection({
         uuid={uuid}
         routeFilter={filter}
         active={typeFilter}
+        gradeRange={gradeRange}
       />
-      <form action="" method="GET" role="search" className="mb-4">
+      <form action="" method="GET" role="search" className="mb-4 space-y-3">
         {/* Carry the current type selection through a route-name
             submission so applying both filters works without manual
             URL-merging. */}
@@ -545,6 +577,15 @@ function ClimbsSection({
           aria-label="Filter routes by name"
           className="w-full px-4 py-2 text-sm rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent"
         />
+        <GradeRangeFilter range={gradeRange} label="Grade range" />
+        <div className="text-right">
+          <button
+            type="submit"
+            className="text-sm px-4 py-1.5 rounded-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors"
+          >
+            Apply
+          </button>
+        </div>
       </form>
       {matches.length === 0 ? (
         <p className="text-stone-500 dark:text-stone-400">
@@ -575,20 +616,26 @@ function TypeFilter({
   uuid,
   routeFilter,
   active,
+  gradeRange,
 }: {
   uuid: string;
   routeFilter: string;
   active: Set<string>;
+  gradeRange: GradeRange;
 }) {
   function hrefFor(toggle: string): string {
     // Toggle this chip's value in/out of the active set, then rebuild
-    // the URL preserving any existing route-name filter.
+    // the URL preserving any existing route-name filter + grade range.
     const next = new Set(active);
     if (next.has(toggle)) next.delete(toggle);
     else next.add(toggle);
     const params = new URLSearchParams();
     if (routeFilter) params.set("route", routeFilter);
     if (next.size > 0) params.set("type", Array.from(next).join(","));
+    if (gradeRange.ydsMin) params.set("ydsMin", gradeRange.ydsMin);
+    if (gradeRange.ydsMax) params.set("ydsMax", gradeRange.ydsMax);
+    if (gradeRange.vMin) params.set("vMin", gradeRange.vMin);
+    if (gradeRange.vMax) params.set("vMax", gradeRange.vMax);
     const qs = params.toString();
     return `/area/${uuid}${qs ? `?${qs}` : ""}`;
   }
