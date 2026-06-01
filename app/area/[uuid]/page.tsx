@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { gql } from "@apollo/client";
@@ -10,6 +10,7 @@ import { MapToggle } from "@/components/map-toggle";
 import { Stars } from "@/components/stars";
 import { TypeFilterChips } from "@/components/type-filter-chips";
 import { WeatherForecast } from "@/components/weather-forecast";
+import { WeatherSkeleton } from "@/components/weather-skeleton";
 import { gradeToNumber } from "@/lib/grades";
 import { coordsOf, haversineMiles } from "@/lib/geo";
 import { parseTypeFilter } from "@/lib/climb-types";
@@ -308,10 +309,12 @@ export default async function AreaPage({
             </p>
 
             {isMainCragForWeather(area) && (
-              <WeatherForecast
-                lat={area.metadata?.lat}
-                lng={area.metadata?.lng}
-              />
+              <Suspense fallback={<WeatherSkeleton />}>
+                <WeatherForecast
+                  lat={area.metadata?.lat}
+                  lng={area.metadata?.lng}
+                />
+              </Suspense>
             )}
 
             {area.metadata?.lat != null && area.metadata?.lng != null && (

@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
@@ -11,6 +11,7 @@ import { MapToggle } from "@/components/map-toggle";
 import { Stars } from "@/components/stars";
 import { RateClimb } from "@/components/rate-climb";
 import { WeatherForecast } from "@/components/weather-forecast";
+import { WeatherSkeleton } from "@/components/weather-skeleton";
 import { coordsOf } from "@/lib/geo";
 import { blendRating, type RatingSource } from "@/lib/ratings";
 import { createClient } from "@/lib/supabase/server";
@@ -350,7 +351,9 @@ export default async function ClimbPage({
 
         {mapCoords && (
           <div className="mt-4">
-            <WeatherForecast lat={mapCoords.lat} lng={mapCoords.lng} />
+            <Suspense fallback={<WeatherSkeleton />}>
+              <WeatherForecast lat={mapCoords.lat} lng={mapCoords.lng} />
+            </Suspense>
           </div>
         )}
 
