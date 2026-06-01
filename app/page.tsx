@@ -171,87 +171,18 @@ export default async function Home({
   const hasLocation = userLat !== null && userLng !== null;
   const shown = parseShown(shownRaw);
 
-  let areas: AreaCardData[] = [];
-  let routes: ClimbResult[] = [];
-  let nearResults: NearCrag[] = [];
-  let nearError = false;
-  let searchError = false;
-  let routeError = false;
-
-  // Location → map pins + near list. Runs whether or not we're also
-  // searching, so the map stays populated during a search.
-  if (hasLocation) {
-    try {
-      const result = await getClient().query<GetCragsNearResponse>({
-        query: GET_CRAGS_NEAR,
-        variables: {
-          lat: userLat,
-          lng: userLng,
-          max: NEAR_RADIUS_METERS,
-        },
-      });
-      const groups = result.data?.cragsNear ?? [];
-      // Flatten all distance buckets, drop crags without coords, attach
-      // a true haversine distance, sort nearest-first, and cap.
-      const all: NearCrag[] = [];
-      for (const g of groups) {
-        for (const c of g?.crags ?? []) {
-          const cLat = c.metadata?.lat;
-          const cLng = c.metadata?.lng;
-          if (cLat == null || cLng == null) continue;
-          all.push({
-            ...c,
-            distanceMiles: haversineMiles(
-              { lat: userLat, lng: userLng },
-              { lat: cLat, lng: cLng },
-            ),
-          });
-        }
-      }
-      all.sort((a, b) => a.distanceMiles - b.distanceMiles);
-      // Cap the fetched set at NEAR_MAX_SHOWN so the page stays bounded
-      // even if a query point is in a very dense area; we slice further
-      // for display below.
-      nearResults = all.slice(0, NEAR_MAX_SHOWN);
-    } catch (err) {
-      console.error("OpenBeta cragsNear query failed:", err);
-      nearError = true;
-    }
-  }
-
-  // Query → search-results list, independent of location. Which index we
-  // hit depends on the active tab: areas (OpenBeta) or routes (Supabase).
-  if (query && mode === "areas") {
-    try {
-      const result = await getClient().query<GetAreasResponse>({
-        query: GET_AREAS,
-        variables: { query },
-      });
-      areas = result.data?.areas ?? [];
-    } catch (err) {
-      console.error("OpenBeta GraphQL query failed:", err);
-      searchError = true;
-    }
-  } else if (query && mode === "routes") {
-    try {
-      const supabase = await createClient();
-      const bounds = gradeRangeToBounds(gradeRange);
-      const { data, error } = await supabase.rpc("search_climbs", {
-        q: query,
-        types: typeFilter.size > 0 ? Array.from(typeFilter) : null,
-        yds_min: bounds.ydsMin,
-        yds_max: bounds.ydsMax,
-        v_min: bounds.vMin,
-        v_max: bounds.vMax,
-        max_results: 50,
-      });
-      if (error) throw error;
-      routes = (data ?? []) as ClimbResult[];
-    } catch (err) {
-      console.error("Supabase route search failed:", err);
-      routeError = true;
-    }
-  }
+  // Run the two independent upstream calls — near-me (OpenBeta) and
+  // the active search (OpenBeta areas OR Supabase routes) — in
+  // parallel. Each tracks its own error so a slow / failing one
+  // doesn't take the other down, and the page only waits for the
+  // slower of the two instead of both serially.
+  const [
+    { nearResults, nearError },
+    { areas, routes, searchError, routeError },
+  ] = await Promise.all([
+    fetchNearResults(hasLocation, userLat, userLng),
+    fetchSearchResults(query, mode, typeFilter, gradeRange),
+  ]);
   // Distinct crags among the route hits — shown in the results heading
   // since results are grouped by area.
   const routeAreaCount = new Set(
@@ -579,6 +510,108 @@ export default async function Home({
 // Build a home-page URL for an Areas/Routes tab, preserving the current
 // query and location so switching tabs (or submitting) keeps both. Areas
 // is the default mode, so its links omit the `mode` param.
+// Pull the user's near-me crags from OpenBeta. Returns an empty list
+// (not an error) when no location is set; non-fatal on upstream error
+// so the rest of the page still renders.
+async function fetchNearResults(
+  hasLocation: boolean,
+  userLat: number | null,
+  userLng: number | null,
+): Promise<{ nearResults: NearCrag[]; nearError: boolean }> {
+  if (!hasLocation || userLat === null || userLng === null) {
+    return { nearResults: [], nearError: false };
+  }
+  try {
+    const result = await getClient().query<GetCragsNearResponse>({
+      query: GET_CRAGS_NEAR,
+      variables: { lat: userLat, lng: userLng, max: NEAR_RADIUS_METERS },
+    });
+    const groups = result.data?.cragsNear ?? [];
+    const all: NearCrag[] = [];
+    for (const g of groups) {
+      for (const c of g?.crags ?? []) {
+        const cLat = c.metadata?.lat;
+        const cLng = c.metadata?.lng;
+        if (cLat == null || cLng == null) continue;
+        all.push({
+          ...c,
+          distanceMiles: haversineMiles(
+            { lat: userLat, lng: userLng },
+            { lat: cLat, lng: cLng },
+          ),
+        });
+      }
+    }
+    all.sort((a, b) => a.distanceMiles - b.distanceMiles);
+    // Cap so a query point in a very dense region doesn't blow up the
+    // page; the visible card list paginates further via `shown`.
+    return { nearResults: all.slice(0, NEAR_MAX_SHOWN), nearError: false };
+  } catch (err) {
+    console.error("OpenBeta cragsNear query failed:", err);
+    return { nearResults: [], nearError: true };
+  }
+}
+
+// Run the active text-search against the right index for the tab.
+// Areas mode → OpenBeta; routes mode → Supabase search_climbs RPC.
+// Returns empty results (not an error) when no query is set.
+async function fetchSearchResults(
+  query: string,
+  mode: "areas" | "routes",
+  typeFilter: Set<string>,
+  gradeRange: GradeRange,
+): Promise<{
+  areas: AreaCardData[];
+  routes: ClimbResult[];
+  searchError: boolean;
+  routeError: boolean;
+}> {
+  if (!query) {
+    return { areas: [], routes: [], searchError: false, routeError: false };
+  }
+  if (mode === "areas") {
+    try {
+      const result = await getClient().query<GetAreasResponse>({
+        query: GET_AREAS,
+        variables: { query },
+      });
+      return {
+        areas: result.data?.areas ?? [],
+        routes: [],
+        searchError: false,
+        routeError: false,
+      };
+    } catch (err) {
+      console.error("OpenBeta GraphQL query failed:", err);
+      return { areas: [], routes: [], searchError: true, routeError: false };
+    }
+  }
+  // routes mode
+  try {
+    const supabase = await createClient();
+    const bounds = gradeRangeToBounds(gradeRange);
+    const { data, error } = await supabase.rpc("search_climbs", {
+      q: query,
+      types: typeFilter.size > 0 ? Array.from(typeFilter) : null,
+      yds_min: bounds.ydsMin,
+      yds_max: bounds.ydsMax,
+      v_min: bounds.vMin,
+      v_max: bounds.vMax,
+      max_results: 50,
+    });
+    if (error) throw error;
+    return {
+      areas: [],
+      routes: (data ?? []) as ClimbResult[],
+      searchError: false,
+      routeError: false,
+    };
+  } catch (err) {
+    console.error("Supabase route search failed:", err);
+    return { areas: [], routes: [], searchError: false, routeError: true };
+  }
+}
+
 function searchHref(
   mode: "areas" | "routes",
   query: string,
