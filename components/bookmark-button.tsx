@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   addBookmark,
   type Bookmark,
@@ -195,11 +195,14 @@ function StatusChips({
           </button>
         );
       })}
+      {/* Desktop: Mark attempt + Remove are inline. On mobile they
+          collapse into a More menu so the action row doesn't wrap to
+          three lines on a phone. */}
       {isProjectClimb && (
         <button
           type="button"
           onClick={onRecordAttempt}
-          className={CHIP_INACTIVE}
+          className={`${CHIP_INACTIVE} hidden sm:inline-flex`}
           title={
             bookmark.lastAttemptAt
               ? `Last attempt ${formatRelative(bookmark.lastAttemptAt)}`
@@ -213,10 +216,106 @@ function StatusChips({
         type="button"
         onClick={onRemove}
         aria-label="Remove from bookmarks"
-        className={CHIP_REMOVE}
+        className={`${CHIP_REMOVE} hidden sm:inline-flex`}
       >
         Remove
       </button>
+      <MoreMenu
+        showMarkAttempt={isProjectClimb}
+        lastAttemptAt={bookmark.lastAttemptAt}
+        onRecordAttempt={onRecordAttempt}
+        onRemove={onRemove}
+      />
     </div>
+  );
+}
+
+/**
+ * Mobile-only overflow menu for the action row. Renders a "⋯ More"
+ * chip; tapping it opens a small popover with the secondary actions
+ * (Mark attempt — if applicable — and Remove). Hidden on sm+ where
+ * those actions are inline.
+ */
+function MoreMenu({
+  showMarkAttempt,
+  lastAttemptAt,
+  onRecordAttempt,
+  onRemove,
+}: {
+  showMarkAttempt: boolean;
+  lastAttemptAt: number | undefined;
+  onRecordAttempt: () => void;
+  onRemove: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [open]);
+
+  return (
+    <span ref={ref} className="relative inline-flex sm:hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="More actions"
+        className={CHIP_INACTIVE}
+      >
+        ⋯ More
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute top-full right-0 mt-1 w-48 rounded-lg border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-md z-20 py-1 text-sm"
+        >
+          {showMarkAttempt && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onRecordAttempt();
+                setOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 hover:bg-stone-50 dark:hover:bg-stone-800/60 text-stone-700 dark:text-stone-200"
+            >
+              Mark attempt
+              {lastAttemptAt && (
+                <span className="block text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                  Last {formatRelative(lastAttemptAt)}
+                </span>
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onRemove();
+              setOpen(false);
+            }}
+            className="w-full text-left px-3 py-2 hover:bg-stone-50 dark:hover:bg-stone-800/60 text-red-700 dark:text-red-400"
+          >
+            Remove
+          </button>
+        </div>
+      )}
+    </span>
   );
 }
