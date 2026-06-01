@@ -56,11 +56,12 @@ create or replace function public.search_climbs(
 )
 returns setof public.climbs_index
 language plpgsql
--- Volatile (default) rather than stable: stable functions can't run
+-- Volatile (explicit) rather than stable: stable functions can't run
 -- `SET LOCAL`, which we use below to grant the statement-timeout
 -- headroom this search occasionally needs. PostgREST doesn't care
 -- about the volatility marker for this call, and the function is
 -- semantically read-only either way.
+volatile
 as $$
 begin
   -- Supabase's anon role has a 3s statement_timeout, which can fire on
