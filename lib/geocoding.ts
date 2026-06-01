@@ -75,10 +75,11 @@ async function fetchFromMapbox(
     `&types=place,region,country`;
 
   try {
-    // 2.5s cap — Mapbox is normally <200 ms, so anything past this is
-    // an outage. Without the cap, one slow upstream stalls a whole
-    // home render that geocodes many coords.
-    const res = await fetch(url, { signal: AbortSignal.timeout(2500) });
+    // 5s cap — Mapbox itself is usually <200 ms but a cold serverless
+    // function plus mobile-network jitter can push the first call past
+    // a tight 2.5s budget, surfacing as false "couldn't reach the
+    // database" errors. Still bounded enough to catch a real outage.
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error(
