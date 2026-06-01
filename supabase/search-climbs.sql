@@ -56,20 +56,14 @@ create or replace function public.search_climbs(
 )
 returns setof public.climbs_index
 language plpgsql
--- Volatile (explicit) rather than stable: stable functions can't run
--- `SET LOCAL`, which we use below to grant the statement-timeout
--- headroom this search occasionally needs. PostgREST doesn't care
--- about the volatility marker for this call, and the function is
--- semantically read-only either way.
-volatile
+-- Stable: the function reads but doesn't write. We grant the
+-- statement-timeout headroom via `alter function ... set
+-- statement_timeout` below instead of `SET LOCAL` inside the body —
+-- Postgres rejects `SET` in non-volatile functions, and we want this
+-- to be marked stable for PostgREST/query-planner clarity.
+stable
 as $$
 begin
-  -- Supabase's anon role has a 3s statement_timeout, which can fire on
-  -- broad terms with selective filters. 8s is well under any
-  -- pooler-level cap and is plenty of headroom — typical queries
-  -- still return in well under a second.
-  set local statement_timeout = '8s';
-
   return query
   select *
   from public.climbs_index c
@@ -119,5 +113,14 @@ $$;
 grant execute on function public.search_climbs(
   text, text[], numeric, numeric, numeric, numeric, int
 ) to anon, authenticated;
+
+-- Per-function timeout. Set this way instead of `SET LOCAL` inside the
+-- body so it works regardless of the function's volatility marker.
+-- Supabase's anon role has a 3s default; 8s is well under any
+-- pooler-level cap and is plenty of headroom — typical queries still
+-- return in well under a second.
+alter function public.search_climbs(
+  text, text[], numeric, numeric, numeric, numeric, int
+) set statement_timeout = '8s';
 
 notify pgrst, 'reload schema';
