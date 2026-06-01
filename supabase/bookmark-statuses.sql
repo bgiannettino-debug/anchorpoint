@@ -24,4 +24,14 @@ alter table public.bookmarks
   add constraint bookmarks_status_check
   check (status in ('bookmark', 'project', 'wishlist'));
 
+-- The original bookmarks table only had SELECT / INSERT / DELETE
+-- policies (save and remove were the only operations). Status changes,
+-- notes edits, and Mark-attempt all go through UPDATE, so we need an
+-- explicit policy. Idempotent — drop then recreate.
+drop policy if exists "Users update own bookmarks" on public.bookmarks;
+create policy "Users update own bookmarks"
+  on public.bookmarks for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
 notify pgrst, 'reload schema';
