@@ -1,6 +1,3 @@
-// See climb/[id]/page.tsx for the rationale.
-export const runtime = "edge";
-
 import { Suspense } from "react";
 import Link from "next/link";
 import { getClient } from "@/lib/apollo-client";
