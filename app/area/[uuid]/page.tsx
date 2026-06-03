@@ -680,9 +680,15 @@ function TypeFilter({
 }
 
 /**
- * Sort-mode chips. Two: Grade (the existing default — easiest first)
- * and Popular (most ticks first, ties break by grade). Lives next to
- * the section heading.
+ * Sort-mode picker. Two modes: Grade (the existing default — easiest
+ * first) and Popular (most ticks first, ties break by grade). Lives
+ * next to the section heading.
+ *
+ * On phones this is a chevron dropdown (matching the weather card's
+ * native `<details>` disclosure) so it stays compact in the heading
+ * row; desktop keeps the inline chips. Both are no-JS: the dropdown is
+ * a `<details>` popover and each option is a `<Link>` that carries the
+ * `sort` query param.
  */
 function SortToggle({
   uuid,
@@ -709,29 +715,73 @@ function SortToggle({
     { value: "grade", label: "Grade" },
     { value: "popular", label: "Popular" },
   ];
+  const activeLabel =
+    MODES.find((m) => m.value === active)?.label ?? MODES[0].label;
   return (
-    <div className="flex items-baseline gap-2 text-sm text-stone-500 dark:text-stone-400">
-      <span aria-hidden>Sort:</span>
-      <div role="group" aria-label="Sort climbs" className="flex gap-1">
-        {MODES.map((m) => {
-          const isActive = active === m.value;
-          return (
-            <Link
-              key={m.value}
-              href={hrefFor(m.value)}
-              aria-pressed={isActive}
-              className={
-                isActive
-                  ? "px-2 py-0.5 rounded-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium"
-                  : "px-2 py-0.5 rounded-full text-xs hover:text-stone-900 dark:hover:text-stone-100 underline underline-offset-4"
-              }
-            >
-              {m.label}
-            </Link>
-          );
-        })}
+    <>
+      {/* Mobile: chevron dropdown, styled after the weather card */}
+      <details className="sm:hidden group relative text-sm">
+        <summary className="cursor-pointer list-none flex items-center gap-1.5 text-stone-500 dark:text-stone-400">
+          <span aria-hidden>Sort:</span>
+          <span className="font-medium text-stone-900 dark:text-stone-100">
+            {activeLabel}
+          </span>
+          <span
+            aria-hidden
+            className="text-stone-400 dark:text-stone-500 transition-transform group-open:rotate-180"
+          >
+            ▾
+          </span>
+        </summary>
+        <div
+          role="group"
+          aria-label="Sort climbs"
+          className="absolute right-0 z-10 mt-1 min-w-32 rounded-lg border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 py-1 shadow-lg"
+        >
+          {MODES.map((m) => {
+            const isActive = active === m.value;
+            return (
+              <Link
+                key={m.value}
+                href={hrefFor(m.value)}
+                aria-current={isActive ? "true" : undefined}
+                className={
+                  isActive
+                    ? "block px-3 py-1.5 font-medium text-stone-900 dark:text-stone-100 bg-stone-100 dark:bg-stone-800"
+                    : "block px-3 py-1.5 text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800/50"
+                }
+              >
+                {m.label}
+              </Link>
+            );
+          })}
+        </div>
+      </details>
+
+      {/* Desktop: inline chips */}
+      <div className="hidden sm:flex items-baseline gap-2 text-sm text-stone-500 dark:text-stone-400">
+        <span aria-hidden>Sort:</span>
+        <div role="group" aria-label="Sort climbs" className="flex gap-1">
+          {MODES.map((m) => {
+            const isActive = active === m.value;
+            return (
+              <Link
+                key={m.value}
+                href={hrefFor(m.value)}
+                aria-pressed={isActive}
+                className={
+                  isActive
+                    ? "px-2 py-0.5 rounded-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium"
+                    : "px-2 py-0.5 rounded-full text-xs hover:text-stone-900 dark:hover:text-stone-100 underline underline-offset-4"
+                }
+              >
+                {m.label}
+              </Link>
+            );
+          })}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
