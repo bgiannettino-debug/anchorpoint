@@ -600,8 +600,8 @@ function ClimbsSection({
               value={Array.from(typeFilter).join(",")}
             />
           )}
-          {sortMode === "popular" && (
-            <input type="hidden" name="sort" value="popular" />
+          {sortMode === "rating" && (
+            <input type="hidden" name="sort" value="rating" />
           )}
           <input
             type="search"
@@ -634,7 +634,7 @@ function ClimbsSection({
         </p>
       ) : (
         <ul className="bg-white dark:bg-stone-900 rounded-lg border border-stone-200 dark:border-stone-800 divide-y divide-stone-200 dark:divide-stone-800">
-          {sortClimbs(matches, sortMode).map((climb) => (
+          {sortClimbs(matches, sortMode, ratings).map((climb) => (
             <ClimbRow
               key={climb.id}
               climb={climb}
@@ -684,15 +684,14 @@ function TypeFilter({
 }
 
 /**
- * Sort-mode picker. Two modes: Grade (the existing default — easiest
- * first) and Popular (most ticks first, ties break by grade). Lives
- * next to the section heading.
+ * Sort-mode picker. Two modes: Grade (the default — easiest first) and
+ * Top rated (highest blended star rating first, then ticks, then
+ * grade). Lives next to the section heading.
  *
  * On phones this is a chevron dropdown (matching the weather card's
- * native `<details>` disclosure) so it stays compact in the heading
- * row; desktop keeps the inline chips. Both are no-JS: the dropdown is
- * a `<details>` popover and each option is a `<Link>` that carries the
- * `sort` query param.
+ * disclosure) so it stays compact in the heading row; desktop keeps the
+ * inline chips. Each option is a `<Link>` carrying the `sort` query
+ * param.
  */
 function SortToggle({
   uuid,
@@ -717,7 +716,7 @@ function SortToggle({
   }
   const MODES: { value: SortMode; label: string }[] = [
     { value: "grade", label: "Grade" },
-    { value: "popular", label: "Popular" },
+    { value: "rating", label: "Top rated" },
   ];
   const activeLabel =
     MODES.find((m) => m.value === active)?.label ?? MODES[0].label;
@@ -785,7 +784,7 @@ function buildClimbsHref(
   if (gradeRange.ydsMax) params.set("ydsMax", gradeRange.ydsMax);
   if (gradeRange.vMin) params.set("vMin", gradeRange.vMin);
   if (gradeRange.vMax) params.set("vMax", gradeRange.vMax);
-  if (sortMode === "popular") params.set("sort", "popular");
+  if (sortMode === "rating") params.set("sort", "rating");
   const qs = params.toString();
   return `/area/${uuid}${qs ? `?${qs}` : ""}`;
 }
@@ -880,37 +879,58 @@ function formatClimbType(type: Climb["type"]): string | null {
   return labels.length > 0 ? labels.join("/") : null;
 }
 
-type SortMode = "grade" | "popular";
+type SortMode = "grade" | "rating";
 
 function parseSortMode(raw: string | undefined): SortMode {
-  return raw === "popular" ? "popular" : "grade";
+  // "popular" is the legacy param value (PR #93) — keep accepting it so
+  // old links don't silently drop to grade.
+  return raw === "rating" || raw === "popular" ? "rating" : "grade";
 }
 
-function sortClimbs(climbs: Climb[], mode: SortMode): Climb[] {
-  if (mode === "popular") {
-    // Most ticks first. Ties (very common — most climbs have 0 ticks)
-    // fall through to YDS grade order so the within-tier list still
+/** Easiest-first by YDS grade; unparseable grades (V-scale, etc.) sort last. */
+function byYdsGradeAsc(a: Climb, b: Climb): number {
+  const ag = a.grades?.yds ? gradeToNumber(a.grades.yds) : null;
+  const bg = b.grades?.yds ? gradeToNumber(b.grades.yds) : null;
+  if (ag === null && bg === null) return 0;
+  if (ag === null) return 1;
+  if (bg === null) return -1;
+  return ag - bg;
+}
+
+/** Blended star rating for a climb, or null when it has no votes. */
+function ratingStars(
+  climb: Climb,
+  ratings: Map<string, RatingSource>,
+): number | null {
+  const r = ratings.get(climb.uuid);
+  return r ? blendRating(r).stars : null;
+}
+
+function sortClimbs(
+  climbs: Climb[],
+  mode: SortMode,
+  ratings: Map<string, RatingSource>,
+): Climb[] {
+  if (mode === "rating") {
+    // Highest blended star rating first. Unrated climbs (no votes) sink
+    // to the bottom. Within a rating tier — and across the big unrated
+    // tail — break ties by tick count, then by grade so the list still
     // reads top-down by difficulty.
     return [...climbs].sort((a, b) => {
+      const sa = ratingStars(a, ratings);
+      const sb = ratingStars(b, ratings);
+      if (sa !== sb) {
+        if (sa === null) return 1;
+        if (sb === null) return -1;
+        return sb - sa;
+      }
       const ta = a.ticks?.length ?? 0;
       const tb = b.ticks?.length ?? 0;
       if (tb !== ta) return tb - ta;
-      const ag = a.grades?.yds ? gradeToNumber(a.grades.yds) : null;
-      const bg = b.grades?.yds ? gradeToNumber(b.grades.yds) : null;
-      if (ag === null && bg === null) return 0;
-      if (ag === null) return 1;
-      if (bg === null) return -1;
-      return ag - bg;
+      return byYdsGradeAsc(a, b);
     });
   }
   // Default: easiest first by YDS grade number; unparseable grades
   // (V-grades, etc.) sort to the end and keep their original order.
-  return [...climbs].sort((a, b) => {
-    const ag = a.grades?.yds ? gradeToNumber(a.grades.yds) : null;
-    const bg = b.grades?.yds ? gradeToNumber(b.grades.yds) : null;
-    if (ag === null && bg === null) return 0;
-    if (ag === null) return 1;
-    if (bg === null) return -1;
-    return ag - bg;
-  });
+  return [...climbs].sort(byYdsGradeAsc);
 }
