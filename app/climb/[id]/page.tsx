@@ -1,3 +1,9 @@
+// Edge runtime: faster cold starts (~50–100 ms vs ~500–1000 ms for
+// Node functions). All upstream calls (Apollo→OpenBeta, Supabase,
+// Mapbox geocoding, Open-Meteo) go through web-standard `fetch` and
+// are edge-compatible. Move the home and area pages too if this works.
+export const runtime = "edge";
+
 import { cache, Fragment, Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";

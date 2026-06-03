@@ -1,3 +1,6 @@
+// See climb/[id]/page.tsx for the rationale.
+export const runtime = "edge";
+
 import { cache, Fragment, Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
