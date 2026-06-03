@@ -1,4 +1,4 @@
-import { Fragment, Suspense } from "react";
+import { cache, Fragment, Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
@@ -184,19 +184,26 @@ const GET_CLIMB = gql`
   }
 `;
 
-async function fetchClimb(uuid: string): Promise<ClimbDetail | null> {
-  try {
-    const result = await getClient().query<GetClimbResponse>({
-      query: GET_CLIMB,
-      variables: { uuid },
-      errorPolicy: "all",
-    });
-    return result.data?.climb ?? null;
-  } catch (err) {
-    console.error("OpenBeta GraphQL query failed:", err);
-    return null;
-  }
-}
+// React.cache() de-duplicates calls with the same args across a single
+// request. Next renders generateMetadata + the page tree concurrently,
+// so without this both could hit OpenBeta on a cold cache. Apollo's
+// per-request InMemoryCache dedupes within one render pass but not
+// across two parallel ones.
+const fetchClimb = cache(
+  async (uuid: string): Promise<ClimbDetail | null> => {
+    try {
+      const result = await getClient().query<GetClimbResponse>({
+        query: GET_CLIMB,
+        variables: { uuid },
+        errorPolicy: "all",
+      });
+      return result.data?.climb ?? null;
+    } catch (err) {
+      console.error("OpenBeta GraphQL query failed:", err);
+      return null;
+    }
+  },
+);
 
 export async function generateMetadata({
   params,
