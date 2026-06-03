@@ -49,10 +49,15 @@ type GetCragsNearResponse = {
   cragsNear: (CragsNearGroup | null)[] | null;
 };
 
-// Hidden 200-mile sanity cap on the cragsNear query. The user never
-// picks a radius — they just keep clicking "Show more" until they
-// either find what they need or run out of results inside the cap.
-const NEAR_RADIUS_METERS = Math.round(200 * 1609.344);
+// Distance tiers (miles) for the near-me query, tried smallest-first.
+// `cragsNear` has no result limit, so both the payload and OpenBeta's
+// per-crag grade aggregation scale with the radius — a single 200-mile
+// query around a dense region (e.g. Boulder pulls ~5.5k crags) blows
+// past the 8s upstream timeout. So we start small and widen only when a
+// region comes back sparse: dense regions resolve on the first tiny
+// query, sparse ones still reach 200 miles. Each tier is 0..max, i.e. a
+// superset of the previous, so the stopping tier's result is complete.
+const NEAR_RADII_MILES = [25, 75, 200] as const;
 // How many cards to display on the first render. "Show more" reveals
 // another NEAR_PAGE_SIZE worth at a time.
 const NEAR_INITIAL_SHOWN = 20;
@@ -614,25 +619,36 @@ async function fetchNearResults(
     return { nearResults: [], nearError: false };
   }
   try {
-    const result = await getClient().query<GetCragsNearResponse>({
-      query: GET_CRAGS_NEAR,
-      variables: { lat: userLat, lng: userLng, max: NEAR_RADIUS_METERS },
-    });
-    const groups = result.data?.cragsNear ?? [];
-    const all: NearCrag[] = [];
-    for (const g of groups) {
-      for (const c of g?.crags ?? []) {
-        const cLat = c.metadata?.lat;
-        const cLng = c.metadata?.lng;
-        if (cLat == null || cLng == null) continue;
-        all.push({
-          ...c,
-          distanceMiles: haversineMiles(
-            { lat: userLat, lng: userLng },
-            { lat: cLat, lng: cLng },
-          ),
-        });
+    let all: NearCrag[] = [];
+    for (const miles of NEAR_RADII_MILES) {
+      const result = await getClient().query<GetCragsNearResponse>({
+        query: GET_CRAGS_NEAR,
+        variables: {
+          lat: userLat,
+          lng: userLng,
+          max: Math.round(miles * 1609.344),
+        },
+      });
+      // Rebuild from scratch each tier — a wider radius is a superset,
+      // so the latest result already contains every closer crag.
+      all = [];
+      for (const g of result.data?.cragsNear ?? []) {
+        for (const c of g?.crags ?? []) {
+          const cLat = c.metadata?.lat;
+          const cLng = c.metadata?.lng;
+          if (cLat == null || cLng == null) continue;
+          all.push({
+            ...c,
+            distanceMiles: haversineMiles(
+              { lat: userLat, lng: userLng },
+              { lat: cLat, lng: cLng },
+            ),
+          });
+        }
       }
+      // Enough to fill the first page → no reason to widen (and pay the
+      // bigger-radius latency). Otherwise expand to the next tier.
+      if (all.length >= NEAR_INITIAL_SHOWN) break;
     }
     all.sort((a, b) => a.distanceMiles - b.distanceMiles);
     // Cap so a query point in a very dense region doesn't blow up the
