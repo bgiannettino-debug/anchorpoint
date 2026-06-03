@@ -153,15 +153,25 @@ export default async function Home({
   // "areas" (default) searches the OpenBeta area index; "routes" searches
   // our Supabase climbs_index by name. The two tabs above the search box
   // flip this; a hidden input carries it through form submission.
-  const mode = modeRaw === "routes" ? "routes" : "areas";
+  const mode =
+    modeRaw === "routes"
+      ? "routes"
+      : modeRaw === "location"
+        ? "location"
+        : "areas";
 
-  // Place search: "climbs near Bend, Oregon" → forward-geocode the
-  // place and hand off to the near-me view at those coordinates (which
-  // already does distance ranking, the map, pagination, etc.). Only in
-  // Areas mode; if Mapbox can't resolve it we fall through to a normal
-  // name search. The redirect drops `q`, so this can't loop.
-  if (mode === "areas" && query) {
-    const place = parsePlaceQuery(query);
+  // Place search → forward-geocode and hand off to the near-me view at
+  // those coordinates (which already does distance ranking, the map,
+  // pagination, etc.). In the Location tab the whole query is the place;
+  // in Areas mode we accept a "near <place>" prefix as a shortcut. If
+  // Mapbox can't resolve it we fall through (Location shows a
+  // not-found note; Areas runs a normal name search). The redirect
+  // drops `q`, so this can't loop.
+  if (query && (mode === "location" || mode === "areas")) {
+    const place =
+      mode === "location"
+        ? (parsePlaceQuery(query) ?? query)
+        : parsePlaceQuery(query);
     if (place) {
       const geo = await forwardGeocode(place);
       if (geo) {
@@ -198,6 +208,10 @@ export default async function Home({
   const userLng = urlLng ?? cookieLoc?.lng ?? null;
   const hasLocation = userLat !== null && userLng !== null;
   const shown = parseShown(shownRaw);
+  // Which tab reads as active. A location-anchored near view (place
+  // search redirect or the GPS "near me" list) has no query and lights
+  // up the Location tab; otherwise it's whatever mode is in the URL.
+  const activeTab = hasLocation && !query ? "location" : mode;
 
   // Run the two independent upstream calls — near-me (OpenBeta) and
   // the active search (OpenBeta areas OR Supabase routes) — in
@@ -252,14 +266,17 @@ export default async function Home({
           aria-label="Search areas or routes"
           className="flex gap-2 mb-3"
         >
-          {(["areas", "routes"] as const).map((m) => {
-            const active = mode === m;
+          {(["areas", "routes", "location"] as const).map((m) => {
+            const active = activeTab === m;
+            // Switching to Location drops any in-progress name query —
+            // it'd otherwise be geocoded as a place, which is surprising.
+            const tabQuery = m === "location" ? "" : query;
             return (
               <Link
                 key={m}
                 href={searchHref(
                   m,
-                  query,
+                  tabQuery,
                   hasLocation ? userLat : null,
                   hasLocation ? userLng : null,
                 )}
@@ -271,7 +288,7 @@ export default async function Home({
                     : "px-4 py-1.5 rounded-full text-sm border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
                 }
               >
-                {m === "areas" ? "Areas" : "Routes"}
+                {m === "areas" ? "Areas" : m === "routes" ? "Routes" : "Location"}
               </Link>
             );
           })}
@@ -292,9 +309,9 @@ export default async function Home({
             </>
           )}
           {/* Keep the active tab through submission (areas is the default,
-              so only routes needs to be carried). */}
-          {mode === "routes" && (
-            <input type="hidden" name="mode" value="routes" />
+              so only routes / location need to be carried). */}
+          {mode !== "areas" && (
+            <input type="hidden" name="mode" value={mode} />
           )}
           {/* Carry the active discipline chips through a new search. */}
           {mode === "routes" && typeFilter.size > 0 && (
@@ -324,9 +341,17 @@ export default async function Home({
             placeholder={
               mode === "routes"
                 ? "Search routes (e.g. The Nose)"
-                : "Search areas (e.g. Smith Rock)"
+                : mode === "location"
+                  ? "City or place (e.g. Bend, OR)"
+                  : "Search areas (e.g. Smith Rock)"
             }
-            aria-label={mode === "routes" ? "Search routes" : "Search climbing areas"}
+            aria-label={
+              mode === "routes"
+                ? "Search routes"
+                : mode === "location"
+                  ? "Search by location"
+                  : "Search climbing areas"
+            }
             autoFocus
             className="flex-1 min-w-0 px-4 py-3 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent"
           />
@@ -450,6 +475,36 @@ export default async function Home({
                 )}
               </>
             )
+          ) : mode === "location" ? (
+            // Reached only when forward-geocoding failed (a success
+            // redirects to the near-me view before render).
+            <>
+              <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
+                Couldn&apos;t find &ldquo;{query}&rdquo;
+              </h2>
+              <p className="text-stone-500 dark:text-stone-400">
+                Try a city and state, like{" "}
+                <Link
+                  href={searchHref("location", "Bend, OR", null, null)}
+                  className="underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+                >
+                  Bend, OR
+                </Link>
+                . Or search by{" "}
+                <Link
+                  href={searchHref(
+                    "areas",
+                    query,
+                    hasLocation ? userLat : null,
+                    hasLocation ? userLng : null,
+                  )}
+                  className="underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+                >
+                  area name
+                </Link>{" "}
+                instead.
+              </p>
+            </>
           ) : searchError ? (
             <ApiErrorBlock />
           ) : (
@@ -594,7 +649,7 @@ async function fetchNearResults(
 // Returns empty results (not an error) when no query is set.
 async function fetchSearchResults(
   query: string,
-  mode: "areas" | "routes",
+  mode: "areas" | "routes" | "location",
   typeFilter: Set<string>,
   gradeRange: GradeRange,
 ): Promise<{
@@ -603,7 +658,9 @@ async function fetchSearchResults(
   searchError: boolean;
   routeError: boolean;
 }> {
-  if (!query) {
+  // Location mode resolves via forward-geocode + redirect upstream; if
+  // we reach here the geocode failed, so there's no name search to run.
+  if (!query || mode === "location") {
     return { areas: [], routes: [], searchError: false, routeError: false };
   }
   if (mode === "areas") {
@@ -650,14 +707,14 @@ async function fetchSearchResults(
 }
 
 function searchHref(
-  mode: "areas" | "routes",
+  mode: "areas" | "routes" | "location",
   query: string,
   userLat: number | null,
   userLng: number | null,
 ): string {
   const p = new URLSearchParams();
   if (query) p.set("q", query);
-  if (mode === "routes") p.set("mode", "routes");
+  if (mode !== "areas") p.set("mode", mode);
   if (userLat !== null && userLng !== null) {
     p.set("lat", String(userLat));
     p.set("lng", String(userLng));
