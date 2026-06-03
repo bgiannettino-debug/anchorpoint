@@ -139,6 +139,89 @@ async function fetchFromMapbox(
 }
 
 /**
+ * Detect a location-style search like "climbs near Bend, Oregon" or
+ * "around Dallas, TX" and pull out the place ("Bend, Oregon"). Returns
+ * null when the query isn't phrased as a place lookup, so the caller
+ * falls back to a normal area-name search.
+ *
+ * Pure string helper — no network, safe to call anywhere.
+ */
+export function parsePlaceQuery(q: string): string | null {
+  const m = q.match(
+    /^\s*(?:climbs?\s+)?(?:near|around|nearby|close to|by|in)\s+(.+?)\s*$/i,
+  );
+  const place = m?.[1]?.trim();
+  return place ? place : null;
+}
+
+/**
+ * Forward-geocode a free-text place ("Bend, Oregon") to a coordinate
+ * plus a tidy "City, ST" display, US-biased and top-match only. Returns
+ * null when the token is missing or Mapbox finds nothing — callers
+ * should fall back to a normal name search.
+ *
+ * Unlike reverse geocoding (one lookup per visible card, so it's
+ * cached), this fires at most once per explicit place search, so we
+ * skip the cache layer and hit Mapbox directly.
+ */
+export async function forwardGeocode(
+  place: string,
+): Promise<{ lat: number; lng: number; display: string } | null> {
+  const token = process.env.MAPBOX_ACCESS_TOKEN;
+  if (!token) {
+    console.error("[geocoding] MAPBOX_ACCESS_TOKEN is not set");
+    return null;
+  }
+  const q = place.trim();
+  if (!q) return null;
+
+  const url =
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/` +
+    `${encodeURIComponent(q)}.json?access_token=${encodeURIComponent(token)}` +
+    `&country=us&types=place,region,locality,district&limit=1&autocomplete=false`;
+
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(
+        `[geocoding] Mapbox forward ${res.status} for "${q}": ${body.slice(0, 200)}`,
+      );
+      return null;
+    }
+    const data = (await res.json()) as {
+      features?: {
+        center?: [number, number];
+        text?: string;
+        place_name?: string;
+        properties?: { short_code?: string };
+        context?: { id: string; short_code?: string; text?: string }[];
+      }[];
+    };
+    const f = data.features?.[0];
+    if (!f?.center) return null;
+    const [lng, lat] = f.center;
+
+    // Prefer "City, ST". The region code lives in the context for a
+    // place/locality match, or on the feature itself when the match IS
+    // a region (e.g. a bare state). Fall back to Mapbox's place_name.
+    const regionCtx = f.context?.find((c) => c.id.startsWith("region."));
+    const shortCode = regionCtx?.short_code ?? f.properties?.short_code ?? null;
+    const regionCode = shortCode?.split("-").pop()?.toUpperCase() ?? null;
+    const name = f.text ?? q;
+    const display =
+      regionCode && !name.includes(",")
+        ? `${name}, ${regionCode}`
+        : (f.place_name?.replace(/, United States$/, "") ?? name);
+
+    return { lat, lng, display };
+  } catch (err) {
+    console.error(`[geocoding] Mapbox forward failed for "${q}":`, err);
+    return null;
+  }
+}
+
+/**
  * Resolve a batch of coordinates to display strings. Returns a Map
  * keyed by `locationKey(lat, lng)`. Coordinates without a result are
  * absent from the map; callers should fall back to showing coords.

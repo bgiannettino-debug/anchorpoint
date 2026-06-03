@@ -25,7 +25,13 @@ import {
   parseGradeRange,
   type GradeRange,
 } from "@/lib/grade-options";
-import { locationKey, resolveLocations } from "@/lib/geocoding";
+import {
+  forwardGeocode,
+  locationKey,
+  parsePlaceQuery,
+  resolveLocations,
+} from "@/lib/geocoding";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { gql } from "@apollo/client";
 
@@ -128,6 +134,7 @@ export default async function Home({
     q?: string;
     lat?: string;
     lng?: string;
+    place?: string;
     shown?: string;
     mode?: string;
     type?: string;
@@ -140,10 +147,31 @@ export default async function Home({
   const sp = await searchParams;
   const { q, lat, lng, shown: shownRaw, mode: modeRaw, type: typeRaw } = sp;
   const query = q?.trim() ?? "";
+  // Human-readable place label carried from a "climbs near <place>"
+  // redirect, shown in the near-me heading ("Climbs near Bend, OR").
+  const placeLabel = sp.place?.trim() || undefined;
   // "areas" (default) searches the OpenBeta area index; "routes" searches
   // our Supabase climbs_index by name. The two tabs above the search box
   // flip this; a hidden input carries it through form submission.
   const mode = modeRaw === "routes" ? "routes" : "areas";
+
+  // Place search: "climbs near Bend, Oregon" → forward-geocode the
+  // place and hand off to the near-me view at those coordinates (which
+  // already does distance ranking, the map, pagination, etc.). Only in
+  // Areas mode; if Mapbox can't resolve it we fall through to a normal
+  // name search. The redirect drops `q`, so this can't loop.
+  if (mode === "areas" && query) {
+    const place = parsePlaceQuery(query);
+    if (place) {
+      const geo = await forwardGeocode(place);
+      if (geo) {
+        redirect(
+          `/?lat=${geo.lat.toFixed(5)}&lng=${geo.lng.toFixed(5)}` +
+            `&place=${encodeURIComponent(geo.display)}`,
+        );
+      }
+    }
+  }
   // Discipline chips for Routes mode (Sport/Trad/Boulder/…). Only applied
   // when searching routes.
   const typeFilter = mode === "routes" ? parseTypeFilter(typeRaw) : new Set<string>();
@@ -458,11 +486,16 @@ export default async function Home({
               <NearResults
                 results={nearResults.slice(0, shown)}
                 locationFor={locationFor}
+                placeLabel={placeLabel}
               />
               {nearResults.length > shown && (
                 <div className="mt-6 text-center">
                   <Link
-                    href={`/?lat=${userLat}&lng=${userLng}&shown=${Math.min(
+                    href={`/?lat=${userLat}&lng=${userLng}${
+                      placeLabel
+                        ? `&place=${encodeURIComponent(placeLabel)}`
+                        : ""
+                    }&shown=${Math.min(
                       shown + NEAR_PAGE_SIZE,
                       nearResults.length,
                     )}`}
@@ -688,23 +721,28 @@ function ApiErrorBlock() {
 function NearResults({
   results,
   locationFor,
+  placeLabel,
 }: {
   results: NearCrag[];
   locationFor: (
     meta: { lat?: number | null; lng?: number | null } | null | undefined,
   ) => string | undefined;
+  // When set (a "climbs near <place>" search), names the place in the
+  // heading and empty state; otherwise this is the GPS "near you" view.
+  placeLabel?: string;
 }) {
+  const where = placeLabel ?? "you";
   if (results.length === 0) {
     return (
       <p className="text-stone-500 dark:text-stone-400">
-        No climbing areas found near you. Try searching by name instead.
+        No climbing areas found near {where}. Try searching by name instead.
       </p>
     );
   }
   return (
     <>
       <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
-        Climbs near you
+        Climbs near {where}
       </h2>
       <div className="space-y-4">
         {results.map((c) => (
