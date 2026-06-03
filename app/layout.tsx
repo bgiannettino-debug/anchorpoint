@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { AuthIndicator } from "@/components/auth-indicator";
 import { ServiceWorkerRegister } from "@/components/sw-register";
@@ -45,6 +46,10 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ServiceWorkerRegister />
+        {/* Real-user Core Web Vitals — only emits in prod on Vercel,
+            no-op locally. Lets us see actual mobile load times instead
+            of guessing from synthetic curl measurements. */}
+        <SpeedInsights />
         <header className="border-b border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-950">
           <div className="max-w-4xl mx-auto px-4 sm:px-8 py-3 flex items-center gap-3">
             <AuthIndicator />
