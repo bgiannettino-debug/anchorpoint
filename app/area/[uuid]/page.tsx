@@ -7,6 +7,7 @@ import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { DirectionsButton } from "@/components/directions-button";
 import { MapToggle } from "@/components/map-toggle";
+import { MobileFilterDisclosure } from "@/components/mobile-filter-disclosure";
 import { SortDropdown } from "@/components/sort-dropdown";
 import { Stars } from "@/components/stars";
 import { TypeFilterChips } from "@/components/type-filter-chips";
@@ -580,45 +581,47 @@ function ClimbsSection({
           gradeRange={gradeRange}
         />
       </div>
-      <TypeFilter
-        uuid={uuid}
-        routeFilter={filter}
-        active={typeFilter}
-        gradeRange={gradeRange}
-        sortMode={sortMode}
-      />
-      <form action="" method="GET" role="search" className="mb-4 space-y-3">
-        {/* Carry the current type selection + sort through a
-            route-name submission so applying both filters works
-            without manual URL-merging. */}
-        {typeFilter.size > 0 && (
-          <input
-            type="hidden"
-            name="type"
-            value={Array.from(typeFilter).join(",")}
-          />
-        )}
-        {sortMode === "popular" && (
-          <input type="hidden" name="sort" value="popular" />
-        )}
-        <input
-          type="search"
-          name="route"
-          defaultValue={filter}
-          placeholder="Filter routes by name"
-          aria-label="Filter routes by name"
-          className="w-full px-4 py-2 text-sm rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent"
+      <MobileFilterDisclosure defaultOpen={hasAnyFilter}>
+        <TypeFilter
+          uuid={uuid}
+          routeFilter={filter}
+          active={typeFilter}
+          gradeRange={gradeRange}
+          sortMode={sortMode}
         />
-        <GradeRangeFilter range={gradeRange} label="Grade range" />
-        <div className="text-right">
-          <button
-            type="submit"
-            className="text-sm px-4 py-1.5 rounded-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors"
-          >
-            Apply
-          </button>
-        </div>
-      </form>
+        <form action="" method="GET" role="search" className="mb-4 space-y-3">
+          {/* Carry the current type selection + sort through a
+              route-name submission so applying both filters works
+              without manual URL-merging. */}
+          {typeFilter.size > 0 && (
+            <input
+              type="hidden"
+              name="type"
+              value={Array.from(typeFilter).join(",")}
+            />
+          )}
+          {sortMode === "popular" && (
+            <input type="hidden" name="sort" value="popular" />
+          )}
+          <input
+            type="search"
+            name="route"
+            defaultValue={filter}
+            placeholder="Filter routes by name"
+            aria-label="Filter routes by name"
+            className="w-full px-4 py-2 text-sm rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent"
+          />
+          <GradeRangeFilter range={gradeRange} label="Grade range" />
+          <div className="text-right">
+            <button
+              type="submit"
+              className="text-sm px-4 py-1.5 rounded-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors"
+            >
+              Apply
+            </button>
+          </div>
+        </form>
+      </MobileFilterDisclosure>
       {matches.length === 0 ? (
         <p className="text-stone-500 dark:text-stone-400">
           No climbs match the current filters.{" "}
