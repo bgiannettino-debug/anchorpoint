@@ -16,6 +16,7 @@ import {
   getAuthSnapshot,
   subscribeAuth,
 } from "@/lib/auth";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 const STYLE_LABEL: Record<TickStyle, string> = Object.fromEntries(
   TICK_STYLES.map((s) => [s.value, s.label]),
@@ -99,6 +100,7 @@ export default function TicksPage() {
 }
 
 function TickRow({ tick: t }: { tick: Tick }) {
+  const [confirming, setConfirming] = useState(false);
   return (
     <li className="flex items-start">
       <Link
@@ -141,12 +143,23 @@ function TickRow({ tick: t }: { tick: Tick }) {
       </Link>
       <button
         type="button"
-        onClick={() => void removeTick(t.id)}
+        onClick={() => setConfirming(true)}
         aria-label={`Remove tick on ${t.climbName}`}
         className="px-4 py-3 text-sm text-stone-500 dark:text-stone-400 hover:text-red-700 dark:hover:text-red-400 transition-colors"
       >
         Remove
       </button>
+      <ConfirmDialog
+        open={confirming}
+        title="Remove this tick?"
+        body={`Your logged ascent of ${t.climbName} will be permanently deleted. This can't be undone.`}
+        confirmLabel="Remove"
+        onConfirm={() => {
+          setConfirming(false);
+          void removeTick(t.id);
+        }}
+        onCancel={() => setConfirming(false)}
+      />
     </li>
   );
 }
