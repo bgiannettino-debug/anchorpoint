@@ -175,12 +175,14 @@ export default async function AreaPage({
     ydsMax?: string;
     vMin?: string;
     vMax?: string;
+    sort?: string;
   }>;
 }) {
   const { uuid } = await params;
   const sp = await searchParams;
   const { route, type } = sp;
   const gradeRange = parseGradeRange(sp);
+  const sortMode = parseSortMode(sp.sort);
   const routeFilter = route?.trim() ?? "";
   const typeFilter = parseTypeFilter(type);
 
@@ -330,6 +332,7 @@ export default async function AreaPage({
                 filter={routeFilter}
                 typeFilter={typeFilter}
                 gradeRange={gradeRange}
+                sortMode={sortMode}
                 ratings={ratings}
               />
             )}
@@ -527,6 +530,7 @@ function ClimbsSection({
   filter,
   typeFilter,
   gradeRange,
+  sortMode,
   ratings,
 }: {
   uuid: string;
@@ -534,6 +538,7 @@ function ClimbsSection({
   filter: string;
   typeFilter: Set<string>;
   gradeRange: GradeRange;
+  sortMode: SortMode;
   ratings: Map<string, RatingSource>;
 }) {
   const gradeActive = isGradeRangeActive(gradeRange);
@@ -562,25 +567,38 @@ function ClimbsSection({
 
   return (
     <section>
-      <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
-        {heading}
-      </h2>
+      <div className="flex items-baseline justify-between gap-4 mb-4 flex-wrap">
+        <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200">
+          {heading}
+        </h2>
+        <SortToggle
+          uuid={uuid}
+          active={sortMode}
+          routeFilter={filter}
+          typeFilter={typeFilter}
+          gradeRange={gradeRange}
+        />
+      </div>
       <TypeFilter
         uuid={uuid}
         routeFilter={filter}
         active={typeFilter}
         gradeRange={gradeRange}
+        sortMode={sortMode}
       />
       <form action="" method="GET" role="search" className="mb-4 space-y-3">
-        {/* Carry the current type selection through a route-name
-            submission so applying both filters works without manual
-            URL-merging. */}
+        {/* Carry the current type selection + sort through a
+            route-name submission so applying both filters works
+            without manual URL-merging. */}
         {typeFilter.size > 0 && (
           <input
             type="hidden"
             name="type"
             value={Array.from(typeFilter).join(",")}
           />
+        )}
+        {sortMode === "popular" && (
+          <input type="hidden" name="sort" value="popular" />
         )}
         <input
           type="search"
@@ -612,7 +630,7 @@ function ClimbsSection({
         </p>
       ) : (
         <ul className="bg-white dark:bg-stone-900 rounded-lg border border-stone-200 dark:border-stone-800 divide-y divide-stone-200 dark:divide-stone-800">
-          {sortClimbs(matches).map((climb) => (
+          {sortClimbs(matches, sortMode).map((climb) => (
             <ClimbRow
               key={climb.id}
               climb={climb}
@@ -630,27 +648,26 @@ function TypeFilter({
   routeFilter,
   active,
   gradeRange,
+  sortMode,
 }: {
   uuid: string;
   routeFilter: string;
   active: Set<string>;
   gradeRange: GradeRange;
+  sortMode: SortMode;
 }) {
   function hrefFor(toggle: string): string {
     // Toggle this chip's value in/out of the active set, then rebuild
-    // the URL preserving any existing route-name filter + grade range.
+    // the URL preserving every other filter param.
     const next = new Set(active);
     if (next.has(toggle)) next.delete(toggle);
     else next.add(toggle);
-    const params = new URLSearchParams();
-    if (routeFilter) params.set("route", routeFilter);
-    if (next.size > 0) params.set("type", Array.from(next).join(","));
-    if (gradeRange.ydsMin) params.set("ydsMin", gradeRange.ydsMin);
-    if (gradeRange.ydsMax) params.set("ydsMax", gradeRange.ydsMax);
-    if (gradeRange.vMin) params.set("vMin", gradeRange.vMin);
-    if (gradeRange.vMax) params.set("vMax", gradeRange.vMax);
-    const qs = params.toString();
-    return `/area/${uuid}${qs ? `?${qs}` : ""}`;
+    return buildClimbsHref(uuid, {
+      routeFilter,
+      typeFilter: next,
+      gradeRange,
+      sortMode,
+    });
   }
 
   return (
@@ -660,6 +677,92 @@ function TypeFilter({
       ariaLabel="Filter routes by type"
     />
   );
+}
+
+/**
+ * Sort-mode chips. Two: Grade (the existing default — easiest first)
+ * and Popular (most ticks first, ties break by grade). Lives next to
+ * the section heading.
+ */
+function SortToggle({
+  uuid,
+  active,
+  routeFilter,
+  typeFilter,
+  gradeRange,
+}: {
+  uuid: string;
+  active: SortMode;
+  routeFilter: string;
+  typeFilter: Set<string>;
+  gradeRange: GradeRange;
+}) {
+  function hrefFor(mode: SortMode): string {
+    return buildClimbsHref(uuid, {
+      routeFilter,
+      typeFilter,
+      gradeRange,
+      sortMode: mode,
+    });
+  }
+  const MODES: { value: SortMode; label: string }[] = [
+    { value: "grade", label: "Grade" },
+    { value: "popular", label: "Popular" },
+  ];
+  return (
+    <div className="flex items-baseline gap-2 text-sm text-stone-500 dark:text-stone-400">
+      <span aria-hidden>Sort:</span>
+      <div role="group" aria-label="Sort climbs" className="flex gap-1">
+        {MODES.map((m) => {
+          const isActive = active === m.value;
+          return (
+            <Link
+              key={m.value}
+              href={hrefFor(m.value)}
+              aria-pressed={isActive}
+              className={
+                isActive
+                  ? "px-2 py-0.5 rounded-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium"
+                  : "px-2 py-0.5 rounded-full text-xs hover:text-stone-900 dark:hover:text-stone-100 underline underline-offset-4"
+              }
+            >
+              {m.label}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Single source of truth for /area/<uuid> URLs that need to preserve
+ * the climb-list filter + sort state.
+ */
+function buildClimbsHref(
+  uuid: string,
+  {
+    routeFilter,
+    typeFilter,
+    gradeRange,
+    sortMode,
+  }: {
+    routeFilter: string;
+    typeFilter: Set<string>;
+    gradeRange: GradeRange;
+    sortMode: SortMode;
+  },
+): string {
+  const params = new URLSearchParams();
+  if (routeFilter) params.set("route", routeFilter);
+  if (typeFilter.size > 0) params.set("type", Array.from(typeFilter).join(","));
+  if (gradeRange.ydsMin) params.set("ydsMin", gradeRange.ydsMin);
+  if (gradeRange.ydsMax) params.set("ydsMax", gradeRange.ydsMax);
+  if (gradeRange.vMin) params.set("vMin", gradeRange.vMin);
+  if (gradeRange.vMax) params.set("vMax", gradeRange.vMax);
+  if (sortMode === "popular") params.set("sort", "popular");
+  const qs = params.toString();
+  return `/area/${uuid}${qs ? `?${qs}` : ""}`;
 }
 
 function ClimbRow({
@@ -752,9 +855,31 @@ function formatClimbType(type: Climb["type"]): string | null {
   return labels.length > 0 ? labels.join("/") : null;
 }
 
-function sortClimbs(climbs: Climb[]): Climb[] {
-  // Easiest first by YDS grade number; unparseable grades (V-grades,
-  // etc.) sort to the end and keep their original relative order.
+type SortMode = "grade" | "popular";
+
+function parseSortMode(raw: string | undefined): SortMode {
+  return raw === "popular" ? "popular" : "grade";
+}
+
+function sortClimbs(climbs: Climb[], mode: SortMode): Climb[] {
+  if (mode === "popular") {
+    // Most ticks first. Ties (very common — most climbs have 0 ticks)
+    // fall through to YDS grade order so the within-tier list still
+    // reads top-down by difficulty.
+    return [...climbs].sort((a, b) => {
+      const ta = a.ticks?.length ?? 0;
+      const tb = b.ticks?.length ?? 0;
+      if (tb !== ta) return tb - ta;
+      const ag = a.grades?.yds ? gradeToNumber(a.grades.yds) : null;
+      const bg = b.grades?.yds ? gradeToNumber(b.grades.yds) : null;
+      if (ag === null && bg === null) return 0;
+      if (ag === null) return 1;
+      if (bg === null) return -1;
+      return ag - bg;
+    });
+  }
+  // Default: easiest first by YDS grade number; unparseable grades
+  // (V-grades, etc.) sort to the end and keep their original order.
   return [...climbs].sort((a, b) => {
     const ag = a.grades?.yds ? gradeToNumber(a.grades.yds) : null;
     const bg = b.grades?.yds ? gradeToNumber(b.grades.yds) : null;
