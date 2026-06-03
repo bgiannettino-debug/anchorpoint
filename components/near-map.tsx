@@ -183,7 +183,7 @@ export function NearMap({
 
         // "radius" — frame a fixed-radius box around the focus point: the
         // user when known (home near-me map, 20 mi), otherwise the first
-        // crag (climb-page map, 0.5 mi). Pins outside still render, so
+        // crag (climb-page map, 0.125 mi). Pins outside still render, so
         // zooming out reveals them. 1° lat ≈ 69 mi; lng scaled by cos lat.
         const focusLat = hasUserCoords ? userLat : (crags[0]?.lat ?? null);
         const focusLng = hasUserCoords ? userLng : (crags[0]?.lng ?? null);
