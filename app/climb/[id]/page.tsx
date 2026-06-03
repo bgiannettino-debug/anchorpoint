@@ -343,6 +343,7 @@ export default async function ClimbPage({
             type="climb"
             uuid={climb.uuid}
             name={climb.name}
+            menuAlign="left"
             grade={grade !== "—" ? grade : undefined}
             parentUuid={climb.parent?.uuid}
             parentName={climb.parent?.area_name}
