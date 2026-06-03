@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import mapboxgl from "mapbox-gl";
+// Type-only import — erased at build, so mapbox-gl stays out of the
+// initial JS bundle. The runtime module is loaded asynchronously inside
+// the effect below.
+import type * as MapboxGL from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 // Escape user-facing names before injecting into popup HTML — OpenBeta
@@ -39,7 +42,6 @@ type Props = {
 };
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
-if (TOKEN) mapboxgl.accessToken = TOKEN;
 
 // Continental US fallback view shown before the user clicks "Find
 // climbs near me" — wide enough to cover the lower 48 at zoom 3.
@@ -55,7 +57,7 @@ export function NearMap({
   frameRadiusMiles = 20,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const mapRef = useRef<MapboxGL.Map | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   const hasUserCoords = userLat !== null && userLng !== null;
@@ -69,136 +71,150 @@ export function NearMap({
       return;
     }
 
-    const map = new mapboxgl.Map({
-      container: containerRef.current,
-      style: "mapbox://styles/mapbox/outdoors-v12",
-      center: hasUserCoords ? [userLng, userLat] : DEFAULT_CENTER,
-      zoom: hasUserCoords ? NEAR_ZOOM : DEFAULT_ZOOM,
-      attributionControl: false,
-      cooperativeGestures: false,
-      // Start with no interactivity; toggled on when the user expands.
-      interactive: false,
-    });
-    mapRef.current = map;
+    let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
 
-    // Surface anything Mapbox would normally swallow — bad token, tile
-    // 401s, style fetch failures, etc. Without this, those usually
-    // appear nowhere and the map silently stays blank.
-    map.on("error", (e) => {
-      console.error("[near-map] mapbox error:", e?.error ?? e);
-    });
+    void (async () => {
+      // Lazy-import mapbox-gl (~1.7 MB minified) — keeps it out of the
+      // initial page bundle so the rest of the app paints + becomes
+      // interactive on mobile while Mapbox is still downloading in
+      // the background. Cancelled flag handles unmount during fetch.
+      const mapboxgl = (await import("mapbox-gl")).default;
+      if (cancelled || !containerRef.current) return;
+      mapboxgl.accessToken = TOKEN;
 
-    // Built-in "where am I right now" button. Separate from the static
-    // blue marker above (which marks the query origin) — tapping this
-    // starts continuous watchPosition tracking with an accuracy halo
-    // and heading arrow, so a user driving to the trailhead can see
-    // their live position relative to the crag pins.
-    map.addControl(
-      new mapboxgl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        trackUserLocation: true,
-        showUserHeading: true,
-        showAccuracyCircle: true,
-      }),
-      "top-left",
-    );
+      const map = new mapboxgl.Map({
+        container: containerRef.current,
+        style: "mapbox://styles/mapbox/outdoors-v12",
+        center: hasUserCoords ? [userLng, userLat] : DEFAULT_CENTER,
+        zoom: hasUserCoords ? NEAR_ZOOM : DEFAULT_ZOOM,
+        attributionControl: false,
+        cooperativeGestures: false,
+        // Start with no interactivity; toggled on when the user expands.
+        interactive: false,
+      });
+      mapRef.current = map;
 
-    if (hasUserCoords) {
-      new mapboxgl.Marker({ color: "#1e3a8a" })
-        .setLngLat([userLng, userLat])
-        .addTo(map);
-    }
+      // Surface anything Mapbox would normally swallow — bad token, tile
+      // 401s, style fetch failures, etc. Without this, those usually
+      // appear nowhere and the map silently stays blank.
+      map.on("error", (e) => {
+        console.error("[near-map] mapbox error:", e?.error ?? e);
+      });
 
-    for (const c of crags) {
-      // The button is the tap target (32x32 ≈ Apple HIG's 44pt with
-      // some give for the cursor). Visual dot is a smaller span
-      // centered inside so the map doesn't look cluttered.
-      const el = document.createElement("button");
-      el.type = "button";
-      el.setAttribute("aria-label", `Show ${c.name}`);
-      el.className =
-        "group flex items-center justify-center w-8 h-8 bg-transparent p-0 border-0 appearance-none cursor-pointer";
-      const dot = document.createElement("span");
-      dot.className =
-        "block w-3 h-3 rounded-full bg-red-600 border-2 border-white shadow group-hover:scale-125 transition-transform";
-      el.appendChild(dot);
-
-      // Tap/click opens a popup with the area name + a link, so the
-      // user can see which crag a pin is before navigating. Works on
-      // mobile (no hover) and desktop alike. The link is a plain
-      // anchor — a full navigation off the map is fine for a
-      // deliberate "take me there" action, and it works offline via
-      // the service-worker page cache.
-      const popup = new mapboxgl.Popup({
-        offset: 16,
-        closeButton: false,
-        closeOnClick: true,
-        maxWidth: "220px",
-      }).setHTML(
-        `<div style="font-size:13px;line-height:1.45">` +
-          `<div style="font-weight:600;color:#1c1917">${escapeHtml(c.name)}${
-            c.climbs > 0 ? ` (${c.climbs})` : ""
-          }</div>` +
-          `<a href="/area/${c.uuid}" style="display:inline-block;margin-top:2px;color:#dc2626;font-weight:500;text-decoration:none">View area &rarr;</a>` +
-          `</div>`,
+      // Built-in "where am I right now" button. Separate from the static
+      // blue marker above (which marks the query origin) — tapping this
+      // starts continuous watchPosition tracking with an accuracy halo
+      // and heading arrow, so a user driving to the trailhead can see
+      // their live position relative to the crag pins.
+      map.addControl(
+        new mapboxgl.GeolocateControl({
+          positionOptions: { enableHighAccuracy: true },
+          trackUserLocation: true,
+          showUserHeading: true,
+          showAccuracyCircle: true,
+        }),
+        "top-left",
       );
 
-      new mapboxgl.Marker({ element: el })
-        .setLngLat([c.lng, c.lat])
-        .setPopup(popup)
-        .addTo(map);
-    }
-
-    map.on("load", () => {
-      // Force a resize after the style + first frame are ready. This
-      // catches the case where Mapbox sampled the container size before
-      // CSS finished applying (canvas stuck at the 300px default).
-      map.resize();
-
-      // "all" — frame every crag (+ user) so the whole set is visible.
-      // maxZoom keeps a single pin from zooming to street level.
-      if (fitMode === "all") {
-        const bounds = new mapboxgl.LngLatBounds();
-        if (hasUserCoords) bounds.extend([userLng, userLat]);
-        for (const c of crags) bounds.extend([c.lng, c.lat]);
-        if (!bounds.isEmpty()) {
-          map.fitBounds(bounds, { padding: 40, maxZoom: 13, duration: 0 });
-        }
-        return;
+      if (hasUserCoords) {
+        new mapboxgl.Marker({ color: "#1e3a8a" })
+          .setLngLat([userLng, userLat])
+          .addTo(map);
       }
 
-      // "radius" — frame a fixed-radius box around the focus point: the
-      // user when known (home near-me map, 20 mi), otherwise the first
-      // crag (climb-page map, 0.5 mi). Pins outside still render, so
-      // zooming out reveals them. 1° lat ≈ 69 mi; lng scaled by cos lat.
-      const focusLat = hasUserCoords ? userLat : (crags[0]?.lat ?? null);
-      const focusLng = hasUserCoords ? userLng : (crags[0]?.lng ?? null);
-      if (focusLat === null || focusLng === null) return;
+      for (const c of crags) {
+        // The button is the tap target (32x32 ≈ Apple HIG's 44pt with
+        // some give for the cursor). Visual dot is a smaller span
+        // centered inside so the map doesn't look cluttered.
+        const el = document.createElement("button");
+        el.type = "button";
+        el.setAttribute("aria-label", `Show ${c.name}`);
+        el.className =
+          "group flex items-center justify-center w-8 h-8 bg-transparent p-0 border-0 appearance-none cursor-pointer";
+        const dot = document.createElement("span");
+        dot.className =
+          "block w-3 h-3 rounded-full bg-red-600 border-2 border-white shadow group-hover:scale-125 transition-transform";
+        el.appendChild(dot);
 
-      const dLat = frameRadiusMiles / 69;
-      const dLng =
-        frameRadiusMiles / (69 * Math.cos((focusLat * Math.PI) / 180));
-      map.fitBounds(
-        [
-          [focusLng - dLng, focusLat - dLat],
-          [focusLng + dLng, focusLat + dLat],
-        ],
-        { padding: 20, duration: 0 },
-      );
-    });
+        // Tap/click opens a popup with the area name + a link, so the
+        // user can see which crag a pin is before navigating. Works on
+        // mobile (no hover) and desktop alike. The link is a plain
+        // anchor — a full navigation off the map is fine for a
+        // deliberate "take me there" action, and it works offline via
+        // the service-worker page cache.
+        const popup = new mapboxgl.Popup({
+          offset: 16,
+          closeButton: false,
+          closeOnClick: true,
+          maxWidth: "220px",
+        }).setHTML(
+          `<div style="font-size:13px;line-height:1.45">` +
+            `<div style="font-weight:600;color:#1c1917">${escapeHtml(c.name)}${
+              c.climbs > 0 ? ` (${c.climbs})` : ""
+            }</div>` +
+            `<a href="/area/${c.uuid}" style="display:inline-block;margin-top:2px;color:#dc2626;font-weight:500;text-decoration:none">View area &rarr;</a>` +
+            `</div>`,
+        );
 
-    // Keep the canvas in sync whenever the container's size changes —
-    // expand/collapse animations, viewport rotations, dev-tools open,
-    // etc. This is the most reliable way to avoid the "canvas is
-    // 300x150 default size" symptom we hit on first try.
-    const ro = new ResizeObserver(() => {
-      map.resize();
-    });
-    ro.observe(containerRef.current);
+        new mapboxgl.Marker({ element: el })
+          .setLngLat([c.lng, c.lat])
+          .setPopup(popup)
+          .addTo(map);
+      }
+
+      map.on("load", () => {
+        // Force a resize after the style + first frame are ready. This
+        // catches the case where Mapbox sampled the container size before
+        // CSS finished applying (canvas stuck at the 300px default).
+        map.resize();
+
+        // "all" — frame every crag (+ user) so the whole set is visible.
+        // maxZoom keeps a single pin from zooming to street level.
+        if (fitMode === "all") {
+          const bounds = new mapboxgl.LngLatBounds();
+          if (hasUserCoords) bounds.extend([userLng, userLat]);
+          for (const c of crags) bounds.extend([c.lng, c.lat]);
+          if (!bounds.isEmpty()) {
+            map.fitBounds(bounds, { padding: 40, maxZoom: 13, duration: 0 });
+          }
+          return;
+        }
+
+        // "radius" — frame a fixed-radius box around the focus point: the
+        // user when known (home near-me map, 20 mi), otherwise the first
+        // crag (climb-page map, 0.5 mi). Pins outside still render, so
+        // zooming out reveals them. 1° lat ≈ 69 mi; lng scaled by cos lat.
+        const focusLat = hasUserCoords ? userLat : (crags[0]?.lat ?? null);
+        const focusLng = hasUserCoords ? userLng : (crags[0]?.lng ?? null);
+        if (focusLat === null || focusLng === null) return;
+
+        const dLat = frameRadiusMiles / 69;
+        const dLng =
+          frameRadiusMiles / (69 * Math.cos((focusLat * Math.PI) / 180));
+        map.fitBounds(
+          [
+            [focusLng - dLng, focusLat - dLat],
+            [focusLng + dLng, focusLat + dLat],
+          ],
+          { padding: 20, duration: 0 },
+        );
+      });
+
+      // Keep the canvas in sync whenever the container's size changes —
+      // expand/collapse animations, viewport rotations, dev-tools open,
+      // etc. This is the most reliable way to avoid the "canvas is
+      // 300x150 default size" symptom we hit on first try.
+      resizeObserver = new ResizeObserver(() => {
+        map.resize();
+      });
+      resizeObserver.observe(containerRef.current!);
+    })();
 
     return () => {
-      ro.disconnect();
-      map.remove();
+      cancelled = true;
+      resizeObserver?.disconnect();
+      mapRef.current?.remove();
       mapRef.current = null;
     };
   }, [userLat, userLng, crags, hasUserCoords, frameRadiusMiles, fitMode]);
