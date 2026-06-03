@@ -7,6 +7,7 @@ import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { DirectionsButton } from "@/components/directions-button";
 import { MapToggle } from "@/components/map-toggle";
+import { SortDropdown } from "@/components/sort-dropdown";
 import { Stars } from "@/components/stars";
 import { TypeFilterChips } from "@/components/type-filter-chips";
 import { WeatherForecast } from "@/components/weather-forecast";
@@ -720,43 +721,14 @@ function SortToggle({
   return (
     <>
       {/* Mobile: chevron dropdown, styled after the weather card */}
-      <details className="sm:hidden group relative text-sm">
-        <summary className="cursor-pointer list-none flex items-center gap-1.5 text-stone-500 dark:text-stone-400">
-          <span aria-hidden>Sort:</span>
-          <span className="font-medium text-stone-900 dark:text-stone-100">
-            {activeLabel}
-          </span>
-          <span
-            aria-hidden
-            className="text-stone-400 dark:text-stone-500 transition-transform group-open:rotate-180"
-          >
-            ▾
-          </span>
-        </summary>
-        <div
-          role="group"
-          aria-label="Sort climbs"
-          className="absolute right-0 z-10 mt-1 min-w-32 rounded-lg border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 py-1 shadow-lg"
-        >
-          {MODES.map((m) => {
-            const isActive = active === m.value;
-            return (
-              <Link
-                key={m.value}
-                href={hrefFor(m.value)}
-                aria-current={isActive ? "true" : undefined}
-                className={
-                  isActive
-                    ? "block px-3 py-1.5 font-medium text-stone-900 dark:text-stone-100 bg-stone-100 dark:bg-stone-800"
-                    : "block px-3 py-1.5 text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800/50"
-                }
-              >
-                {m.label}
-              </Link>
-            );
-          })}
-        </div>
-      </details>
+      <SortDropdown
+        activeLabel={activeLabel}
+        options={MODES.map((m) => ({
+          label: m.label,
+          href: hrefFor(m.value),
+          isActive: active === m.value,
+        }))}
+      />
 
       {/* Desktop: inline chips */}
       <div className="hidden sm:flex items-baseline gap-2 text-sm text-stone-500 dark:text-stone-400">
