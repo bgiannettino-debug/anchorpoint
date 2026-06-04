@@ -1,15 +1,10 @@
-import Link from "next/link";
+import { PageNav } from "@/components/page-nav";
 
 export default function Loading() {
   return (
     <main className="min-h-screen bg-stone-50 dark:bg-stone-950 p-8">
       <div className="max-w-4xl mx-auto">
-        <Link
-          href="/"
-          className="text-sm text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100"
-        >
-          ← Search
-        </Link>
+        <PageNav />
 
         <div className="mt-6 animate-pulse" aria-label="Loading area">
           <div className="h-4 w-64 bg-stone-200 dark:bg-stone-800 rounded mb-4" />
