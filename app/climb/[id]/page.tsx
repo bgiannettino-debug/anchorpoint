@@ -1,7 +1,7 @@
 import { cache, Fragment, Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import Image from "next/image";
+import { PhotoGallery } from "@/components/photo-gallery";
 import { cookies } from "next/headers";
 import { gql } from "@apollo/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -105,11 +105,14 @@ type ClimbDetail = {
     location?: string | null;
     protection?: string | null;
   } | null;
-  media?: {
-    mediaUrl: string;
-    width: number;
-    height: number;
-  }[] | null;
+  media?:
+    | {
+        mediaUrl: string;
+        width: number;
+        height: number;
+        username?: string | null;
+      }[]
+    | null;
   ticks?: { _id: string }[] | null;
   metadata?: { lat?: number | null; lng?: number | null } | null;
   pathTokens: string[];
@@ -162,6 +165,7 @@ const GET_CLIMB = gql`
         mediaUrl
         width
         height
+        username
       }
       ticks {
         _id
@@ -393,30 +397,7 @@ export default async function ClimbPage({
           </div>
         )}
 
-        {climb.media && climb.media.length > 0 && (
-          <section className="mt-8">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {climb.media.map((m) => (
-                <a
-                  key={m.mediaUrl}
-                  href={`https://media.openbeta.io${m.mediaUrl}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block overflow-hidden rounded-lg border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900"
-                >
-                  <Image
-                    src={`https://media.openbeta.io${m.mediaUrl}`}
-                    alt={`Photo of ${climb.name}`}
-                    width={m.width}
-                    height={m.height}
-                    sizes="(max-width: 640px) 100vw, 50vw"
-                    className="w-full h-auto"
-                  />
-                </a>
-              ))}
-            </div>
-          </section>
-        )}
+        <PhotoGallery media={climb.media ?? []} label={climb.name} />
 
         <ContentSection title="Description" text={climb.content?.description} />
         <ContentSection title="Location" text={climb.content?.location} />
