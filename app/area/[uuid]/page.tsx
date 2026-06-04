@@ -8,6 +8,7 @@ import { BookmarkButton } from "@/components/bookmark-button";
 import { DirectionsButton } from "@/components/directions-button";
 import { MapToggle } from "@/components/map-toggle";
 import { PageNav } from "@/components/page-nav";
+import { PhotoGallery } from "@/components/photo-gallery";
 import { MobileFilterDisclosure } from "@/components/mobile-filter-disclosure";
 import { SortDropdown } from "@/components/sort-dropdown";
 import { Stars } from "@/components/stars";
@@ -59,6 +60,14 @@ type AreaDetail = {
   pathTokens: string[];
   ancestors: string[];
   metadata?: { lat?: number | null; lng?: number | null } | null;
+  media?:
+    | {
+        mediaUrl: string;
+        width: number;
+        height: number;
+        username?: string | null;
+      }[]
+    | null;
   children: AreaCardData[];
   climbs: Climb[];
 };
@@ -78,6 +87,12 @@ const GET_AREA = gql`
       metadata {
         lat
         lng
+      }
+      media {
+        mediaUrl
+        width
+        height
+        username
       }
       children {
         uuid
@@ -305,6 +320,8 @@ export default async function AreaPage({
             )}
 
             <AreaMap area={area} />
+
+            <PhotoGallery media={area.media ?? []} label={area.area_name} />
 
             {area.children.length > 0 && (
               <section className="mb-10">
