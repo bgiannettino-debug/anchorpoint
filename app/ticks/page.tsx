@@ -17,6 +17,7 @@ import {
   subscribeAuth,
 } from "@/lib/auth";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { TickAnalytics } from "@/components/tick-analytics";
 
 const STYLE_LABEL: Record<TickStyle, string> = Object.fromEntries(
   TICK_STYLES.map((s) => [s.value, s.label]),
@@ -72,6 +73,7 @@ export default function TicksPage() {
           </p>
         ) : (
           <>
+            <TickAnalytics ticks={items} />
             <ul className="bg-white dark:bg-stone-900 rounded-lg border border-stone-200 dark:border-stone-800 divide-y divide-stone-200 dark:divide-stone-800">
               {visible.map((t) => (
                 <TickRow key={t.id} tick={t} />
