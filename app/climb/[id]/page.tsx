@@ -10,6 +10,7 @@ import { BookmarkButton } from "@/components/bookmark-button";
 import { TickForm } from "@/components/tick-form";
 import { DirectionsButton } from "@/components/directions-button";
 import { MapToggle } from "@/components/map-toggle";
+import { PageNav } from "@/components/page-nav";
 import { Stars } from "@/components/stars";
 import { RateClimb } from "@/components/rate-climb";
 import { WeatherForecast } from "@/components/weather-forecast";
@@ -246,12 +247,7 @@ export default async function ClimbPage({
     return (
       <main className="min-h-screen bg-stone-50 dark:bg-stone-950 p-8">
         <div className="max-w-3xl mx-auto">
-          <Link
-            href="/"
-            className="text-sm text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100"
-          >
-            ← Search
-          </Link>
+          <PageNav />
           <h1 className="text-2xl font-semibold text-stone-900 dark:text-stone-100 mt-6">
             Climb not found
           </h1>
@@ -297,12 +293,7 @@ export default async function ClimbPage({
   return (
     <main className="min-h-screen bg-stone-50 dark:bg-stone-950 p-8">
       <div className="max-w-3xl mx-auto">
-        <Link
-          href={climb.parent ? `/area/${climb.parent.uuid}` : "/"}
-          className="text-sm text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100"
-        >
-          ← {climb.parent ? climb.parent.area_name : "Search"}
-        </Link>
+        <PageNav />
 
         <Breadcrumbs
           pathTokens={climb.pathTokens}

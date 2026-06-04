@@ -7,6 +7,7 @@ import { AreaCard, type AreaCardData } from "@/components/area-card";
 import { BookmarkButton } from "@/components/bookmark-button";
 import { DirectionsButton } from "@/components/directions-button";
 import { MapToggle } from "@/components/map-toggle";
+import { PageNav } from "@/components/page-nav";
 import { MobileFilterDisclosure } from "@/components/mobile-filter-disclosure";
 import { SortDropdown } from "@/components/sort-dropdown";
 import { Stars } from "@/components/stars";
@@ -223,12 +224,7 @@ export default async function AreaPage({
   return (
     <main className="min-h-screen bg-stone-50 dark:bg-stone-950 p-8">
       <div className="max-w-4xl mx-auto">
-        <Link
-          href="/"
-          className="text-sm text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100"
-        >
-          ← Search
-        </Link>
+        <PageNav />
 
         {apiError ? (
           <div className="mt-6 bg-white dark:bg-stone-900 rounded-lg p-6 border border-stone-200 dark:border-stone-800">
