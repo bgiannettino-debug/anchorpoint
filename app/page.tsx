@@ -213,10 +213,16 @@ export default async function Home({
   const userLng = urlLng ?? cookieLoc?.lng ?? null;
   const hasLocation = userLat !== null && userLng !== null;
   const shown = parseShown(shownRaw);
-  // Which tab reads as active. A location-anchored near view (place
-  // search redirect or the GPS "near me" list) has no query and lights
-  // up the Location tab; otherwise it's whatever mode is in the URL.
-  const activeTab = hasLocation && !query ? "location" : mode;
+  // Which tab reads as active. A location-anchored near view with *no
+  // explicit mode* (a place-search redirect, the GPS "near me" button,
+  // or a saved-location home visit — all of which omit `mode`) lights up
+  // Location. But an explicit tab choice always wins: clicking Areas or
+  // Routes preserves the location for the map yet sets `mode`, so it
+  // must stay highlighted rather than falling back to Location.
+  const hasExplicitMode =
+    modeRaw === "areas" || modeRaw === "routes" || modeRaw === "location";
+  const activeTab =
+    !hasExplicitMode && hasLocation && !query ? "location" : mode;
 
   // Run the two independent upstream calls — near-me (OpenBeta) and
   // the active search (OpenBeta areas OR Supabase routes) — in
@@ -730,13 +736,17 @@ function searchHref(
 ): string {
   const p = new URLSearchParams();
   if (query) p.set("q", query);
-  if (mode !== "areas") p.set("mode", mode);
+  // Always set mode — including "areas" — so a tab click is an explicit
+  // choice the page can distinguish from a default location-anchored
+  // view (which omits `mode`). Without this, clicking Areas while a
+  // location is preserved looks identical to the near-me view and the
+  // Location tab stays highlighted.
+  p.set("mode", mode);
   if (userLat !== null && userLng !== null) {
     p.set("lat", String(userLat));
     p.set("lng", String(userLng));
   }
-  const qs = p.toString();
-  return qs ? `/?${qs}` : "/";
+  return `/?${p.toString()}`;
 }
 
 // Build a Routes-tab URL with one discipline chip toggled on/off,
