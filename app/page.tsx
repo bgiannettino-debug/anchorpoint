@@ -137,6 +137,7 @@ export default async function Home({
 }: {
   searchParams: Promise<{
     q?: string;
+    near?: string;
     lat?: string;
     lng?: string;
     place?: string;
@@ -197,9 +198,14 @@ export default async function Home({
   // Routes mode can run on facets alone (no name term) — discipline
   // chips and/or a grade range. This drives the faceted filter_climbs
   // path and lets the Routes tab show results before anything is typed.
+  // Routes-tab "Near (city)" filter — a place string we forward-geocode
+  // and hand to filter_climbs as a bounding box. Distinct from the
+  // near-me lat/lng (which drives the map + crag list).
+  const near = mode === "routes" ? (sp.near?.trim() ?? "") : "";
   const hasRouteFacets =
     mode === "routes" &&
     (typeFilter.size > 0 ||
+      near !== "" ||
       !!(
         gradeRange.ydsMin ||
         gradeRange.ydsMax ||
@@ -241,12 +247,22 @@ export default async function Home({
   // parallel. Each tracks its own error so a slow / failing one
   // doesn't take the other down, and the page only waits for the
   // slower of the two instead of both serially.
+  // Resolve the routes "Near (city)" filter to coordinates up front so
+  // the faceted search can pass a bounding box. Only when it's set.
+  const nearGeo = near ? await forwardGeocode(near) : null;
   const [
     { nearResults, nearError },
     { areas, routes, searchError, routeError },
   ] = await Promise.all([
     fetchNearResults(hasLocation, userLat, userLng),
-    fetchSearchResults(query, mode, typeFilter, gradeRange),
+    fetchSearchResults(
+      query,
+      mode,
+      typeFilter,
+      gradeRange,
+      nearGeo?.lat ?? null,
+      nearGeo?.lng ?? null,
+    ),
   ]);
   // Distinct crags among the route hits — shown in the results heading
   // since results are grouped by area.
@@ -432,16 +448,17 @@ export default async function Home({
                   {routes.length === 0
                     ? query
                       ? `No routes for "${query}"`
-                      : "No climbs match those filters"
+                      : `No climbs match${nearGeo ? ` near ${nearGeo.display}` : " those filters"}`
                     : query
                       ? `${routes.length === 50 ? "Top 50 routes" : `${routes.length} route${routes.length === 1 ? "" : "s"}`} in ${routeAreaCount} area${routeAreaCount === 1 ? "" : "s"} for "${query}"`
-                      : `${routes.length === 50 ? "Top 50 climbs" : `${routes.length} climb${routes.length === 1 ? "" : "s"}`} matching your filters`}
+                      : `${routes.length === 50 ? "Top 50 climbs" : `${routes.length} climb${routes.length === 1 ? "" : "s"}`}${nearGeo ? ` near ${nearGeo.display}` : " matching your filters"}`}
                 </h2>
 
                 <RouteFilters
                   query={query}
                   typeFilter={typeFilter}
                   gradeRange={gradeRange}
+                  near={near}
                   userLat={hasLocation ? userLat : null}
                   userLng={hasLocation ? userLng : null}
                 />
@@ -464,8 +481,10 @@ export default async function Home({
                         </Link>{" "}
                         instead.
                       </>
+                    ) : near && !nearGeo ? (
+                      `Couldn't find "${near}" — try a city and state, like Bend, OR.`
                     ) : (
-                      "Try widening the grade range or picking a different discipline."
+                      "Try widening the grade range, a different discipline, or a larger area."
                     )}
                   </p>
                 ) : (
@@ -538,13 +557,14 @@ export default async function Home({
               Filter climbs
             </h2>
             <p className="text-sm text-stone-500 dark:text-stone-400 mb-4">
-              Pick a discipline or grade range to browse — or search by name
-              above.
+              Pick a discipline, grade range, or city to browse — or search by
+              name above.
             </p>
             <RouteFilters
               query=""
               typeFilter={typeFilter}
               gradeRange={gradeRange}
+              near=""
               userLat={hasLocation ? userLat : null}
               userLng={hasLocation ? userLng : null}
             />
@@ -680,6 +700,8 @@ async function fetchSearchResults(
   mode: "areas" | "routes" | "location",
   typeFilter: Set<string>,
   gradeRange: GradeRange,
+  nearLat: number | null = null,
+  nearLng: number | null = null,
 ): Promise<{
   areas: AreaCardData[];
   routes: ClimbResult[];
@@ -716,8 +738,10 @@ async function fetchSearchResults(
   // discipline/grade filters alone, no name gate). Nothing to do if
   // there's neither a name nor a facet.
   const bounds = gradeRangeToBounds(gradeRange);
+  const hasNear = nearLat != null && nearLng != null;
   const hasFacets =
     typeFilter.size > 0 ||
+    hasNear ||
     bounds.ydsMin != null ||
     bounds.ydsMax != null ||
     bounds.vMin != null ||
@@ -728,6 +752,8 @@ async function fetchSearchResults(
   try {
     const supabase = await createClient();
     const types = typeFilter.size > 0 ? Array.from(typeFilter) : null;
+    // A name term uses search_climbs (name match, no geo). Otherwise
+    // filter_climbs runs the facet/near browse.
     const { data, error } = query
       ? await supabase.rpc("search_climbs", {
           q: query,
@@ -745,6 +771,14 @@ async function fetchSearchResults(
           v_min: bounds.vMin,
           v_max: bounds.vMax,
           max_results: 50,
+          // Only send the geo args when there's a place — that keeps a
+          // plain facet search matching the pre-geo 6-arg function, so it
+          // doesn't break in the window before filter-climbs.sql is
+          // re-applied. (Once re-applied, the single 9-arg function with
+          // defaults serves both shapes.)
+          ...(hasNear
+            ? { near_lat: nearLat, near_lng: nearLng, radius_miles: 50 }
+            : {}),
         });
     if (error) throw error;
     return {
@@ -768,12 +802,14 @@ function RouteFilters({
   query,
   typeFilter,
   gradeRange,
+  near,
   userLat,
   userLng,
 }: {
   query: string;
   typeFilter: Set<string>;
   gradeRange: GradeRange;
+  near: string;
   userLat: number | null;
   userLng: number | null;
 }) {
@@ -782,11 +818,11 @@ function RouteFilters({
       <TypeFilterChips
         active={typeFilter}
         hrefFor={(t) =>
-          routeTypeHref(t, query, typeFilter, gradeRange, userLat, userLng)
+          routeTypeHref(t, query, typeFilter, gradeRange, userLat, userLng, near)
         }
         ariaLabel="Filter routes by type"
       />
-      <form action="" method="GET" className="mb-4">
+      <form action="" method="GET" className="mb-4 space-y-3">
         {query && <input type="hidden" name="q" value={query} />}
         <input type="hidden" name="mode" value="routes" />
         {typeFilter.size > 0 && (
@@ -803,6 +839,14 @@ function RouteFilters({
           </>
         )}
         <GradeRangeFilter range={gradeRange} label="Grade range" />
+        <input
+          type="search"
+          name="near"
+          defaultValue={near}
+          placeholder="Near a city (e.g. Bend, OR)"
+          aria-label="Filter climbs near a city"
+          className="w-full px-4 py-2 text-sm rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent"
+        />
         <div className="text-right">
           <button
             type="submit"
@@ -847,6 +891,7 @@ function routeTypeHref(
   gradeRange: GradeRange,
   userLat: number | null,
   userLng: number | null,
+  near: string,
 ): string {
   const next = new Set(active);
   if (next.has(toggle)) next.delete(toggle);
@@ -859,6 +904,7 @@ function routeTypeHref(
   if (gradeRange.ydsMax) p.set("ydsMax", gradeRange.ydsMax);
   if (gradeRange.vMin) p.set("vMin", gradeRange.vMin);
   if (gradeRange.vMax) p.set("vMax", gradeRange.vMax);
+  if (near) p.set("near", near);
   if (userLat !== null && userLng !== null) {
     p.set("lat", String(userLat));
     p.set("lng", String(userLng));

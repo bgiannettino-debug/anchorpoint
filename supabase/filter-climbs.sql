@@ -1,41 +1,66 @@
 -- Faceted climb search: filter the climbs_index by discipline + grade
--- range with NO name term required. This is the piece search_climbs
--- can't do — it gates every row on `q <% c.name` (word-similarity to the
--- name), so a nameless "show me all trad 5.10s" returns nothing there.
--- filter_climbs drops that gate and powers the Routes tab's filter-only
--- mode. Results lead with the best-rated climbs.
+-- range (and optionally "near a place") with NO name term required. This
+-- is the piece search_climbs can't do — it gates every row on
+-- `q <% c.name` (word-similarity to the name), so a nameless
+-- "show me all trad 5.10s" returns nothing there. filter_climbs drops
+-- that gate and powers the Routes tab's filter-only mode.
 --
 -- Apply: run this whole file in the Supabase SQL editor (same as
--- search-climbs.sql / curated-ratings.sql). Idempotent.
+-- search-climbs.sql / curated-ratings.sql). Idempotent. Re-run it after
+-- pulling — the signature gained near_lat / near_lng / radius_miles.
 --
 -- Depends on columns added by earlier migrations:
 --   yds_num / v_num        (search-climbs.sql)
 --   curated_stars          (curated-ratings.sql)
 --   ugc_stars              (climb-ratings.sql)
+--   lat / lng              (climbs-index.sql)
 
--- Btree indexes so the grade-range predicate doesn't seq-scan ~230k rows.
+-- Btree indexes so the grade-range + "near" predicates don't seq-scan
+-- ~230k rows.
 create index if not exists climbs_index_yds_num_idx
   on public.climbs_index (yds_num);
 create index if not exists climbs_index_v_num_idx
   on public.climbs_index (v_num);
+create index if not exists climbs_index_lat_lng_idx
+  on public.climbs_index (lat, lng);
 
+-- Drop the prior signature (pre-geo, 6 args) and the current one before
+-- recreating, since adding params would otherwise leave an orphaned
+-- overload.
 drop function if exists public.filter_climbs(
   text[], numeric, numeric, numeric, numeric, int
 );
+drop function if exists public.filter_climbs(
+  text[], numeric, numeric, numeric, numeric,
+  double precision, double precision, double precision, int
+);
 
 create or replace function public.filter_climbs(
-  types   text[] default null,
-  yds_min numeric default null,
-  yds_max numeric default null,
-  v_min   numeric default null,
-  v_max   numeric default null,
-  max_results int default 50
+  types        text[]  default null,
+  yds_min      numeric default null,
+  yds_max      numeric default null,
+  v_min        numeric default null,
+  v_max        numeric default null,
+  near_lat     double precision default null,
+  near_lng     double precision default null,
+  radius_miles double precision default null,
+  max_results  int     default 50
 )
 returns setof public.climbs_index
 language plpgsql
 stable
 as $$
+declare
+  -- 1° latitude ≈ 69 miles; longitude shrinks by cos(latitude).
+  r     double precision := coalesce(radius_miles, 50);
+  d_lat double precision;
+  d_lng double precision;
 begin
+  if near_lat is not null and near_lng is not null then
+    d_lat := r / 69.0;
+    d_lng := r / (69.0 * greatest(cos(radians(near_lat)), 0.01));
+  end if;
+
   return query
   select *
   from public.climbs_index c
@@ -72,10 +97,28 @@ begin
         and (yds_max is null or c.yds_num <= yds_max)
       )
     )
+    and (
+      -- "Near a place" bounding box (index-friendly). Skipped when no
+      -- coordinates are supplied.
+      near_lat is null
+      or near_lng is null
+      or (
+        c.lat is not null
+        and c.lng is not null
+        and c.lat between near_lat - d_lat and near_lat + d_lat
+        and c.lng between near_lng - d_lng and near_lng + d_lng
+      )
+    )
   order by
-    -- Best-rated first; the blended display value is computed in the app,
-    -- but ordering by the stronger of the two raw stars is close enough
-    -- and keeps this index-friendly.
+    -- When a location is given, nearest first (planar distance², with
+    -- longitude scaled by latitude — good enough for ordering inside a
+    -- small box). Otherwise best-rated first.
+    case
+      when near_lat is not null and near_lng is not null then
+        (c.lat - near_lat) ^ 2
+        + ((c.lng - near_lng) * cos(radians(near_lat))) ^ 2
+      else null
+    end asc nulls last,
     greatest(coalesce(c.curated_stars, 0), coalesce(c.ugc_stars, 0)) desc,
     c.name asc
   limit greatest(1, least(coalesce(max_results, 50), 100));
@@ -83,11 +126,13 @@ end;
 $$;
 
 grant execute on function public.filter_climbs(
-  text[], numeric, numeric, numeric, numeric, int
+  text[], numeric, numeric, numeric, numeric,
+  double precision, double precision, double precision, int
 ) to anon, authenticated;
 
 -- Per-function timeout, mirroring search_climbs. A nameless facet scan
 -- can touch more rows than a name search, so give it a little more room.
 alter function public.filter_climbs(
-  text[], numeric, numeric, numeric, numeric, int
+  text[], numeric, numeric, numeric, numeric,
+  double precision, double precision, double precision, int
 ) set statement_timeout = '12s';
