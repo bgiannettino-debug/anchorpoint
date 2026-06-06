@@ -155,6 +155,9 @@ export function aiParamsToRouteHref(
 ): string {
   const sp = new URLSearchParams();
   sp.set("mode", "routes");
+  // Tag the origin so the page keeps the Ask tab + Ask search box selected
+  // even though the data path is the Routes facet search.
+  sp.set("from", "ask");
   if (p.types.length > 0) sp.set("type", p.types.join(","));
   if (p.ydsMin) sp.set("ydsMin", p.ydsMin);
   if (p.ydsMax) sp.set("ydsMax", p.ydsMax);

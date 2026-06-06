@@ -149,6 +149,7 @@ export default async function Home({
     ydsMax?: string;
     vMin?: string;
     vMax?: string;
+    from?: string;
   }>;
 }) {
   const sp = await searchParams;
@@ -169,6 +170,13 @@ export default async function Home({
         : modeRaw === "ask"
           ? "ask"
           : "areas";
+
+  // An Ask search parses the query and redirects into the Routes faceted
+  // path (mode=routes) to reuse its rendering, tagging the URL with
+  // from=ask. So the *data* mode is routes, but the *UI* should still read
+  // as Ask — keep the Ask tab lit and the search box in Ask form.
+  const fromAsk = mode === "routes" && sp.from === "ask";
+  const searchMode = fromAsk ? "ask" : mode;
 
   // Place search → forward-geocode and hand off to the near-me view at
   // those coordinates (which already does distance ranking, the map,
@@ -276,8 +284,11 @@ export default async function Home({
     modeRaw === "routes" ||
     modeRaw === "location" ||
     modeRaw === "ask";
-  const activeTab =
-    !hasExplicitMode && hasLocation && !query ? "location" : mode;
+  const activeTab = fromAsk
+    ? "ask"
+    : !hasExplicitMode && hasLocation && !query
+      ? "location"
+      : mode;
 
   // Run the two independent upstream calls — near-me (OpenBeta) and
   // the active search (OpenBeta areas OR Supabase routes) — in
@@ -392,30 +403,33 @@ export default async function Home({
               <input type="hidden" name="lng" value={userLng} />
             </>
           )}
-          {/* Keep the active tab through submission (areas is the default,
-              so only routes / location need to be carried). */}
-          {mode !== "areas" && (
-            <input type="hidden" name="mode" value={mode} />
+          {/* Keep the active tab through submission. Use searchMode so an
+              Ask-results view (data mode=routes, from=ask) re-submits as Ask
+              rather than a routes name search. Areas is the default, so it's
+              the only one omitted. */}
+          {searchMode !== "areas" && (
+            <input type="hidden" name="mode" value={searchMode} />
           )}
-          {/* Carry the active discipline chips through a new search. */}
-          {mode === "routes" && typeFilter.size > 0 && (
+          {/* Carry the active discipline chips + grade range through a new
+              search. Skipped on an Ask-results view so a re-asked query
+              doesn't drag the previous parse's facets along. */}
+          {searchMode === "routes" && typeFilter.size > 0 && (
             <input
               type="hidden"
               name="type"
               value={Array.from(typeFilter).join(",")}
             />
           )}
-          {/* Carry the active grade range through a new search. */}
-          {mode === "routes" && gradeRange.ydsMin && (
+          {searchMode === "routes" && gradeRange.ydsMin && (
             <input type="hidden" name="ydsMin" value={gradeRange.ydsMin} />
           )}
-          {mode === "routes" && gradeRange.ydsMax && (
+          {searchMode === "routes" && gradeRange.ydsMax && (
             <input type="hidden" name="ydsMax" value={gradeRange.ydsMax} />
           )}
-          {mode === "routes" && gradeRange.vMin && (
+          {searchMode === "routes" && gradeRange.vMin && (
             <input type="hidden" name="vMin" value={gradeRange.vMin} />
           )}
-          {mode === "routes" && gradeRange.vMax && (
+          {searchMode === "routes" && gradeRange.vMax && (
             <input type="hidden" name="vMax" value={gradeRange.vMax} />
           )}
           <input
@@ -423,20 +437,20 @@ export default async function Home({
             name="q"
             defaultValue={query}
             placeholder={
-              mode === "routes"
+              searchMode === "routes"
                 ? "Search routes (e.g. The Nose)"
-                : mode === "location"
+                : searchMode === "location"
                   ? "City or place (e.g. Bend, OR)"
-                  : mode === "ask"
+                  : searchMode === "ask"
                     ? "e.g. moderate trad near Bishop"
                     : "Search areas (e.g. Smith Rock)"
             }
             aria-label={
-              mode === "routes"
+              searchMode === "routes"
                 ? "Search routes"
-                : mode === "location"
+                : searchMode === "location"
                   ? "Search by location"
-                  : mode === "ask"
+                  : searchMode === "ask"
                     ? "Describe what you're looking for"
                     : "Search climbing areas"
             }
