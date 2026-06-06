@@ -4,6 +4,7 @@ import Link from "next/link";
 import { PhotoGrid } from "@/components/photo-gallery";
 import { AddPhoto } from "@/components/add-photo";
 import { fetchClimbPhotoRows, uploadedPhoto, openBetaPhoto } from "@/lib/photos";
+import { ExpandableText } from "@/components/expandable-text";
 import { cookies } from "next/headers";
 import { gql } from "@apollo/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -454,9 +455,7 @@ function ContentSection({
       <h2 className="text-xl font-semibold text-stone-800 dark:text-stone-200 mb-2">
         {title}
       </h2>
-      <p className="text-stone-700 dark:text-stone-300 whitespace-pre-line">
-        {trimmed}
-      </p>
+      <ExpandableText text={trimmed} />
     </section>
   );
 }
