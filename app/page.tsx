@@ -428,7 +428,7 @@ export default async function Home({
                 : mode === "location"
                   ? "City or place (e.g. Bend, OR)"
                   : mode === "ask"
-                    ? "Describe it (e.g. moderate trad near Bishop)"
+                    ? "e.g. moderate trad near Bishop"
                     : "Search areas (e.g. Smith Rock)"
             }
             aria-label={
