@@ -10,6 +10,7 @@ import { MapToggle } from "@/components/map-toggle";
 import { PageNav } from "@/components/page-nav";
 import { PhotoGallery } from "@/components/photo-gallery";
 import { openBetaPhoto } from "@/lib/photos";
+import { ExpandableText } from "@/components/expandable-text";
 import { MobileFilterDisclosure } from "@/components/mobile-filter-disclosure";
 import { SortDropdown } from "@/components/sort-dropdown";
 import { Stars } from "@/components/stars";
@@ -69,6 +70,7 @@ type AreaDetail = {
         username?: string | null;
       }[]
     | null;
+  content?: { description?: string | null } | null;
   children: AreaCardData[];
   climbs: Climb[];
 };
@@ -94,6 +96,9 @@ const GET_AREA = gql`
         width
         height
         username
+      }
+      content {
+        description
       }
       children {
         uuid
@@ -227,6 +232,7 @@ export default async function AreaPage({
   // already-resolved area but neither needs the other. Run them in
   // parallel so we pay one network round-trip's latency, not two.
   const climbUuids = area?.climbs?.map((c) => c.uuid) ?? [];
+  const areaDescription = area?.content?.description?.trim();
   const [locations, ratings] = await Promise.all([
     resolveLocations(coordsToResolve),
     fetchAreaRatings(climbUuids),
@@ -326,6 +332,15 @@ export default async function AreaPage({
               photos={(area.media ?? []).map(openBetaPhoto)}
               label={area.area_name}
             />
+
+            {areaDescription && (
+              <section className="mt-8 mb-10">
+                <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-2">
+                  Description
+                </h2>
+                <ExpandableText text={areaDescription} />
+              </section>
+            )}
 
             {area.children.length > 0 && (
               <section className="mb-10">
