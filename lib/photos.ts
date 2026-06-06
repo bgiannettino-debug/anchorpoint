@@ -62,6 +62,8 @@ export type ClimbPhotoRow = {
   width: number;
   height: number;
   caption: string | null;
+  // Joined from profiles (when set); the uploader's public display name.
+  display_name?: string | null;
 };
 
 // Public URL for an object in the photo bucket. Public buckets serve at a
@@ -83,9 +85,9 @@ export function uploadedPhoto(
     href: url,
     width: row.width,
     height: row.height,
-    // Attribution per uploader needs a profiles table (none yet), so all
-    // community uploads share one credit for now.
-    credit: "Community",
+    // The uploader's display name when they've set one; otherwise a
+    // generic credit.
+    credit: row.display_name?.trim() || "Community",
     caption: row.caption,
     deletable:
       currentUserId && row.user_id === currentUserId
@@ -110,9 +112,40 @@ export async function fetchClimbPhotoRows(
       .order("created_at", { ascending: false })
       .limit(24);
     if (error) throw error;
-    return (data ?? []) as ClimbPhotoRow[];
+    const rows = (data ?? []) as ClimbPhotoRow[];
+    await attachDisplayNames(supabase, rows);
+    return rows;
   } catch (err) {
     console.error("Climb photos fetch failed (non-fatal):", err);
     return [];
+  }
+}
+
+// Look up uploaders' display names in one query and attach them to the
+// rows. No FK between climb_photos and profiles (both point at auth.users),
+// so this is a separate lookup rather than an embedded join. Non-fatal:
+// before profiles.sql is applied this errors and credits fall back to
+// "Community".
+async function attachDisplayNames(
+  supabase: SupabaseClient,
+  rows: ClimbPhotoRow[],
+): Promise<void> {
+  const ids = [...new Set(rows.map((r) => r.user_id))];
+  if (ids.length === 0) return;
+  try {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("user_id, display_name")
+      .in("user_id", ids);
+    if (error) throw error;
+    const byId = new Map(
+      (data ?? []).map((p: { user_id: string; display_name: string | null }) => [
+        p.user_id,
+        p.display_name,
+      ]),
+    );
+    for (const r of rows) r.display_name = byId.get(r.user_id) ?? null;
+  } catch (err) {
+    console.error("Profile name lookup failed (non-fatal):", err);
   }
 }
