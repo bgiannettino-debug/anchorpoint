@@ -31,6 +31,12 @@ import {
   parsePlaceQuery,
   resolveLocations,
 } from "@/lib/geocoding";
+import {
+  aiParamsToRouteHref,
+  hasUsableFilters,
+  isAiSearchConfigured,
+  parseAiQuery,
+} from "@/lib/ai-search";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { gql } from "@apollo/client";
@@ -157,14 +163,17 @@ export default async function Home({
   // redirect, shown in the near-me heading ("Climbs near Bend, OR").
   const placeLabel = sp.place?.trim() || undefined;
   // "areas" (default) searches the OpenBeta area index; "routes" searches
-  // our Supabase climbs_index by name. The two tabs above the search box
-  // flip this; a hidden input carries it through form submission.
+  // our Supabase climbs_index by name. "ask" parses a natural-language query
+  // into Routes facets and redirects. The tabs above the search box flip
+  // this; a hidden input carries it through form submission.
   const mode =
     modeRaw === "routes"
       ? "routes"
       : modeRaw === "location"
         ? "location"
-        : "areas";
+        : modeRaw === "ask"
+          ? "ask"
+          : "areas";
 
   // Place search → forward-geocode and hand off to the near-me view at
   // those coordinates (which already does distance ranking, the map,
@@ -231,6 +240,31 @@ export default async function Home({
   const userLng = urlLng ?? cookieLoc?.lng ?? null;
   const hasLocation = userLat !== null && userLng !== null;
   const shown = parseShown(shownRaw);
+
+  // Ask mode: hand the free-text query to the Haiku parser, then redirect
+  // into the Routes faceted path with the extracted params (which already
+  // does grade/discipline filtering, the "near" geocode, the map, etc.).
+  // The redirect drops `q`, so this can't loop. Graceful fallbacks render in
+  // place: "unconfigured" when there's no API key, "failed" when the parse
+  // returns nothing usable.
+  let askState: "idle" | "unconfigured" | "failed" = "idle";
+  if (mode === "ask" && query) {
+    if (!isAiSearchConfigured()) {
+      askState = "unconfigured";
+    } else {
+      const parsed = await parseAiQuery(query);
+      if (parsed && hasUsableFilters(parsed)) {
+        redirect(
+          aiParamsToRouteHref(
+            parsed,
+            hasLocation ? userLat : null,
+            hasLocation ? userLng : null,
+          ),
+        );
+      }
+      askState = "failed";
+    }
+  }
   // Which tab reads as active. A location-anchored near view with *no
   // explicit mode* (a place-search redirect, the GPS "near me" button,
   // or a saved-location home visit — all of which omit `mode`) lights up
@@ -238,7 +272,10 @@ export default async function Home({
   // Routes preserves the location for the map yet sets `mode`, so it
   // must stay highlighted rather than falling back to Location.
   const hasExplicitMode =
-    modeRaw === "areas" || modeRaw === "routes" || modeRaw === "location";
+    modeRaw === "areas" ||
+    modeRaw === "routes" ||
+    modeRaw === "location" ||
+    modeRaw === "ask";
   const activeTab =
     !hasExplicitMode && hasLocation && !query ? "location" : mode;
 
@@ -305,7 +342,7 @@ export default async function Home({
           aria-label="Search areas or routes"
           className="flex gap-2 mb-3"
         >
-          {(["areas", "routes", "location"] as const).map((m) => {
+          {(["areas", "routes", "location", "ask"] as const).map((m) => {
             const active = activeTab === m;
             // Switching to Location drops any in-progress name query —
             // it'd otherwise be geocoded as a place, which is surprising.
@@ -327,7 +364,13 @@ export default async function Home({
                     : "px-4 py-1.5 rounded-full text-sm border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
                 }
               >
-                {m === "areas" ? "Areas" : m === "routes" ? "Routes" : "Location"}
+                {m === "areas"
+                  ? "Areas"
+                  : m === "routes"
+                    ? "Routes"
+                    : m === "location"
+                      ? "Location"
+                      : "Ask"}
               </Link>
             );
           })}
@@ -382,14 +425,18 @@ export default async function Home({
                 ? "Search routes (e.g. The Nose)"
                 : mode === "location"
                   ? "City or place (e.g. Bend, OR)"
-                  : "Search areas (e.g. Smith Rock)"
+                  : mode === "ask"
+                    ? "Describe it (e.g. moderate trad near Bishop)"
+                    : "Search areas (e.g. Smith Rock)"
             }
             aria-label={
               mode === "routes"
                 ? "Search routes"
                 : mode === "location"
                   ? "Search by location"
-                  : "Search climbing areas"
+                  : mode === "ask"
+                    ? "Describe what you're looking for"
+                    : "Search climbing areas"
             }
             autoFocus
             className="flex-1 min-w-0 px-4 py-3 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent"
@@ -439,7 +486,16 @@ export default async function Home({
           // Searching (by name, or by facets alone) — show results below
           // the (still-populated) map. Takes precedence over the near-me
           // list.
-          mode === "routes" ? (
+          mode === "ask" ? (
+            // Reached only when the parse didn't redirect (no key, or no
+            // usable filters extracted). A success redirects to Routes first.
+            <AskFallback
+              state={askState}
+              query={query}
+              userLat={hasLocation ? userLat : null}
+              userLng={hasLocation ? userLng : null}
+            />
+          ) : mode === "routes" ? (
             routeError ? (
               <ApiErrorBlock />
             ) : (
@@ -549,6 +605,9 @@ export default async function Home({
               )}
             </>
           )
+        ) : mode === "ask" ? (
+          // Ask tab, nothing entered yet — explain it and offer examples.
+          <AskEmptyState />
         ) : mode === "routes" ? (
           // Routes tab, nothing entered yet — surface the facet controls
           // so you can browse by discipline + grade without a name.
@@ -697,7 +756,7 @@ async function fetchNearResults(
 // Returns empty results (not an error) when no query is set.
 async function fetchSearchResults(
   query: string,
-  mode: "areas" | "routes" | "location",
+  mode: "areas" | "routes" | "location" | "ask",
   typeFilter: Set<string>,
   gradeRange: GradeRange,
   nearLat: number | null = null,
@@ -708,9 +767,10 @@ async function fetchSearchResults(
   searchError: boolean;
   routeError: boolean;
 }> {
-  // Location mode resolves via forward-geocode + redirect upstream; if
-  // we reach here the geocode failed, so there's nothing to search.
-  if (mode === "location") {
+  // Location mode resolves via forward-geocode + redirect upstream; ask mode
+  // redirects into Routes on a successful parse. If we reach here in either,
+  // there's nothing to search (geocode/parse failed, or no query yet).
+  if (mode === "location" || mode === "ask") {
     return { areas: [], routes: [], searchError: false, routeError: false };
   }
   if (mode === "areas") {
@@ -861,7 +921,7 @@ function RouteFilters({
 }
 
 function searchHref(
-  mode: "areas" | "routes" | "location",
+  mode: "areas" | "routes" | "location" | "ask",
   query: string,
   userLat: number | null,
   userLng: number | null,
@@ -932,6 +992,114 @@ function ApiErrorBlock() {
         moment — try again.
       </p>
     </div>
+  );
+}
+
+// Example queries shown on the Ask intro + after a failed parse. Each links
+// back into Ask mode so a click re-runs the search.
+const ASK_EXAMPLES = [
+  "moderate sport climbs near Bend, OR",
+  "5.11 trad in Yosemite",
+  "V4 to V7 boulders near Bishop",
+  "easy multipitch near Las Vegas",
+];
+
+function askHref(query: string): string {
+  return `/?mode=ask&q=${encodeURIComponent(query)}`;
+}
+
+// Ask tab with nothing entered yet — pitch the feature and offer example
+// prompts that drop straight back into Ask mode.
+function AskEmptyState() {
+  return (
+    <>
+      <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-2">
+        Ask in plain English
+      </h2>
+      <p className="text-sm text-stone-500 dark:text-stone-400 mb-4">
+        Describe what you want to climb — discipline, grade, and area — and
+        we&apos;ll turn it into a filtered route search. Try:
+      </p>
+      <ul className="flex flex-wrap gap-2">
+        {ASK_EXAMPLES.map((ex) => (
+          <li key={ex}>
+            <Link
+              href={askHref(ex)}
+              className="inline-block px-3 py-1.5 rounded-full text-sm border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+            >
+              {ex}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+// Shown when an Ask query didn't redirect: either AI search isn't configured
+// (no API key) or the parser found nothing usable. Both point to the manual
+// Routes filters as a fallback.
+function AskFallback({
+  state,
+  query,
+  userLat,
+  userLng,
+}: {
+  state: "idle" | "unconfigured" | "failed";
+  query: string;
+  userLat: number | null;
+  userLng: number | null;
+}) {
+  const routesHref = searchHref("routes", "", userLat, userLng);
+  if (state === "unconfigured") {
+    return (
+      <>
+        <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-2">
+          Ask search isn&apos;t set up yet
+        </h2>
+        <p className="text-stone-500 dark:text-stone-400">
+          Natural-language search isn&apos;t available in this environment. In
+          the meantime, use the{" "}
+          <Link
+            href={routesHref}
+            className="underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+          >
+            Routes filters
+          </Link>{" "}
+          to browse by discipline, grade, and city.
+        </p>
+      </>
+    );
+  }
+  return (
+    <>
+      <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-2">
+        Couldn&apos;t turn that into a search
+      </h2>
+      <p className="text-stone-500 dark:text-stone-400 mb-4">
+        We couldn&apos;t pull a discipline, grade, or place out of &ldquo;
+        {query}&rdquo;. Try naming one — or use the{" "}
+        <Link
+          href={routesHref}
+          className="underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+        >
+          Routes filters
+        </Link>
+        . For example:
+      </p>
+      <ul className="flex flex-wrap gap-2">
+        {ASK_EXAMPLES.map((ex) => (
+          <li key={ex}>
+            <Link
+              href={askHref(ex)}
+              className="inline-block px-3 py-1.5 rounded-full text-sm border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+            >
+              {ex}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
