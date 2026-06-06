@@ -19,11 +19,27 @@ export async function AuthIndicator() {
     );
   }
 
+  // Prefer the display name; fall back to email. Non-fatal before
+  // profiles.sql is applied.
+  let displayName: string | null = null;
+  try {
+    const { data } = await supabase
+      .from("profiles")
+      .select("display_name")
+      .maybeSingle();
+    displayName = data?.display_name ?? null;
+  } catch {
+    // profiles table not present yet — fall back to email.
+  }
+
   return (
     <>
-      <span className="hidden sm:inline text-sm text-stone-600 dark:text-stone-400 truncate max-w-[24ch]">
-        {user.email}
-      </span>
+      <Link
+        href="/account"
+        className="hidden sm:inline text-sm text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 truncate max-w-[24ch]"
+      >
+        {displayName || user.email}
+      </Link>
       <div className="ml-auto flex items-center gap-3 text-sm">
         <Link
           href="/bookmarks"
