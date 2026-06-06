@@ -194,6 +194,18 @@ export default async function Home({
   // no notion of grade bounds.
   const gradeRange: GradeRange =
     mode === "routes" ? parseGradeRange(sp) : EMPTY_GRADE_RANGE;
+  // Routes mode can run on facets alone (no name term) — discipline
+  // chips and/or a grade range. This drives the faceted filter_climbs
+  // path and lets the Routes tab show results before anything is typed.
+  const hasRouteFacets =
+    mode === "routes" &&
+    (typeFilter.size > 0 ||
+      !!(
+        gradeRange.ydsMin ||
+        gradeRange.ydsMax ||
+        gradeRange.vMin ||
+        gradeRange.vMax
+      ));
 
   // Location and search are now independent. Location (lat/lng) always
   // drives the map + the near-me list; a query drives the search-results
@@ -407,9 +419,10 @@ export default async function Home({
           </div>
         )}
 
-        {query ? (
-          // Searching — show search results below the (still-populated)
-          // map. Takes precedence over the near-me list.
+        {query || hasRouteFacets ? (
+          // Searching (by name, or by facets alone) — show results below
+          // the (still-populated) map. Takes precedence over the near-me
+          // list.
           mode === "routes" ? (
             routeError ? (
               <ApiErrorBlock />
@@ -417,69 +430,43 @@ export default async function Home({
               <>
                 <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
                   {routes.length === 0
-                    ? `No routes for "${query}"`
-                    : `${routes.length === 50 ? "Top 50 routes" : `${routes.length} route${routes.length === 1 ? "" : "s"}`} in ${routeAreaCount} area${routeAreaCount === 1 ? "" : "s"} for "${query}"`}
+                    ? query
+                      ? `No routes for "${query}"`
+                      : "No climbs match those filters"
+                    : query
+                      ? `${routes.length === 50 ? "Top 50 routes" : `${routes.length} route${routes.length === 1 ? "" : "s"}`} in ${routeAreaCount} area${routeAreaCount === 1 ? "" : "s"} for "${query}"`
+                      : `${routes.length === 50 ? "Top 50 climbs" : `${routes.length} climb${routes.length === 1 ? "" : "s"}`} matching your filters`}
                 </h2>
 
-                <TypeFilterChips
-                  active={typeFilter}
-                  hrefFor={(t) =>
-                    routeTypeHref(
-                      t,
-                      query,
-                      typeFilter,
-                      gradeRange,
-                      hasLocation ? userLat : null,
-                      hasLocation ? userLng : null,
-                    )
-                  }
-                  ariaLabel="Filter routes by type"
+                <RouteFilters
+                  query={query}
+                  typeFilter={typeFilter}
+                  gradeRange={gradeRange}
+                  userLat={hasLocation ? userLat : null}
+                  userLng={hasLocation ? userLng : null}
                 />
-
-                <form action="" method="GET" className="mb-4">
-                  {/* Preserve everything else when the user changes
-                      grade bounds and submits. */}
-                  {query && <input type="hidden" name="q" value={query} />}
-                  <input type="hidden" name="mode" value="routes" />
-                  {typeFilter.size > 0 && (
-                    <input
-                      type="hidden"
-                      name="type"
-                      value={Array.from(typeFilter).join(",")}
-                    />
-                  )}
-                  {hasLocation && (
-                    <>
-                      <input type="hidden" name="lat" value={userLat} />
-                      <input type="hidden" name="lng" value={userLng} />
-                    </>
-                  )}
-                  <GradeRangeFilter range={gradeRange} label="Grade range" />
-                  <div className="text-right">
-                    <button
-                      type="submit"
-                      className="text-sm px-4 py-1.5 rounded-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors"
-                    >
-                      Apply
-                    </button>
-                  </div>
-                </form>
 
                 {routes.length === 0 ? (
                   <p className="text-stone-500 dark:text-stone-400">
-                    Try a different spelling, or search{" "}
-                    <Link
-                      href={searchHref(
-                        "areas",
-                        query,
-                        hasLocation ? userLat : null,
-                        hasLocation ? userLng : null,
-                      )}
-                      className="underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
-                    >
-                      Areas
-                    </Link>{" "}
-                    instead.
+                    {query ? (
+                      <>
+                        Try a different spelling, or search{" "}
+                        <Link
+                          href={searchHref(
+                            "areas",
+                            query,
+                            hasLocation ? userLat : null,
+                            hasLocation ? userLng : null,
+                          )}
+                          className="underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+                        >
+                          Areas
+                        </Link>{" "}
+                        instead.
+                      </>
+                    ) : (
+                      "Try widening the grade range or picking a different discipline."
+                    )}
                   </p>
                 ) : (
                   <ClimbResultsGrouped climbs={routes} />
@@ -543,6 +530,25 @@ export default async function Home({
               )}
             </>
           )
+        ) : mode === "routes" ? (
+          // Routes tab, nothing entered yet — surface the facet controls
+          // so you can browse by discipline + grade without a name.
+          <>
+            <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-2">
+              Filter climbs
+            </h2>
+            <p className="text-sm text-stone-500 dark:text-stone-400 mb-4">
+              Pick a discipline or grade range to browse — or search by name
+              above.
+            </p>
+            <RouteFilters
+              query=""
+              typeFilter={typeFilter}
+              gradeRange={gradeRange}
+              userLat={hasLocation ? userLat : null}
+              userLng={hasLocation ? userLng : null}
+            />
+          </>
         ) : hasLocation ? (
           // No query but we have a location — the near-me list.
           nearError ? (
@@ -681,11 +687,14 @@ async function fetchSearchResults(
   routeError: boolean;
 }> {
   // Location mode resolves via forward-geocode + redirect upstream; if
-  // we reach here the geocode failed, so there's no name search to run.
-  if (!query || mode === "location") {
+  // we reach here the geocode failed, so there's nothing to search.
+  if (mode === "location") {
     return { areas: [], routes: [], searchError: false, routeError: false };
   }
   if (mode === "areas") {
+    if (!query) {
+      return { areas: [], routes: [], searchError: false, routeError: false };
+    }
     try {
       const result = await getClient().query<GetAreasResponse>({
         query: GET_AREAS,
@@ -702,19 +711,41 @@ async function fetchSearchResults(
       return { areas: [], routes: [], searchError: true, routeError: false };
     }
   }
-  // routes mode
+  // routes mode. With a name term → search_climbs (name match + optional
+  // facet refinement). Without one → filter_climbs (faceted browse: the
+  // discipline/grade filters alone, no name gate). Nothing to do if
+  // there's neither a name nor a facet.
+  const bounds = gradeRangeToBounds(gradeRange);
+  const hasFacets =
+    typeFilter.size > 0 ||
+    bounds.ydsMin != null ||
+    bounds.ydsMax != null ||
+    bounds.vMin != null ||
+    bounds.vMax != null;
+  if (!query && !hasFacets) {
+    return { areas: [], routes: [], searchError: false, routeError: false };
+  }
   try {
     const supabase = await createClient();
-    const bounds = gradeRangeToBounds(gradeRange);
-    const { data, error } = await supabase.rpc("search_climbs", {
-      q: query,
-      types: typeFilter.size > 0 ? Array.from(typeFilter) : null,
-      yds_min: bounds.ydsMin,
-      yds_max: bounds.ydsMax,
-      v_min: bounds.vMin,
-      v_max: bounds.vMax,
-      max_results: 50,
-    });
+    const types = typeFilter.size > 0 ? Array.from(typeFilter) : null;
+    const { data, error } = query
+      ? await supabase.rpc("search_climbs", {
+          q: query,
+          types,
+          yds_min: bounds.ydsMin,
+          yds_max: bounds.ydsMax,
+          v_min: bounds.vMin,
+          v_max: bounds.vMax,
+          max_results: 50,
+        })
+      : await supabase.rpc("filter_climbs", {
+          types,
+          yds_min: bounds.ydsMin,
+          yds_max: bounds.ydsMax,
+          v_min: bounds.vMin,
+          v_max: bounds.vMax,
+          max_results: 50,
+        });
     if (error) throw error;
     return {
       areas: [],
@@ -726,6 +757,63 @@ async function fetchSearchResults(
     console.error("Supabase route search failed:", err);
     return { areas: [], routes: [], searchError: false, routeError: true };
   }
+}
+
+// The Routes-tab filter UI (discipline chips + grade range + Apply),
+// shared between the results view and the empty-state prompt so the
+// filters are reachable before anything is typed. Carries the current
+// query + location through submission; works with an empty query
+// (faceted browse).
+function RouteFilters({
+  query,
+  typeFilter,
+  gradeRange,
+  userLat,
+  userLng,
+}: {
+  query: string;
+  typeFilter: Set<string>;
+  gradeRange: GradeRange;
+  userLat: number | null;
+  userLng: number | null;
+}) {
+  return (
+    <>
+      <TypeFilterChips
+        active={typeFilter}
+        hrefFor={(t) =>
+          routeTypeHref(t, query, typeFilter, gradeRange, userLat, userLng)
+        }
+        ariaLabel="Filter routes by type"
+      />
+      <form action="" method="GET" className="mb-4">
+        {query && <input type="hidden" name="q" value={query} />}
+        <input type="hidden" name="mode" value="routes" />
+        {typeFilter.size > 0 && (
+          <input
+            type="hidden"
+            name="type"
+            value={Array.from(typeFilter).join(",")}
+          />
+        )}
+        {userLat !== null && userLng !== null && (
+          <>
+            <input type="hidden" name="lat" value={userLat} />
+            <input type="hidden" name="lng" value={userLng} />
+          </>
+        )}
+        <GradeRangeFilter range={gradeRange} label="Grade range" />
+        <div className="text-right">
+          <button
+            type="submit"
+            className="text-sm px-4 py-1.5 rounded-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors"
+          >
+            Apply
+          </button>
+        </div>
+      </form>
+    </>
+  );
 }
 
 function searchHref(
