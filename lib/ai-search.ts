@@ -17,6 +17,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod/v4";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { KNOWN_TYPES, TYPE_FILTER_OPTIONS } from "./climb-types";
 import { YDS_GRADES, V_GRADES } from "./grade-options";
 
@@ -165,4 +166,144 @@ export function aiParamsToRouteHref(
     sp.set("lng", String(userLng));
   }
   return `/?${sp.toString()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Cache + rate limit
+//
+// The Ask box is unauthenticated, so every miss is a paid Haiku call. We
+// memoize parsed queries (so repeats/common phrasings are free + instant)
+// and rate-limit only the misses per IP. Both go through the service-role
+// admin client and bypass RLS, mirroring the geocoded_locations cache.
+// Every Supabase touch degrades gracefully: a cache error is a miss, and a
+// rate-limit error fails open — so the feature still works before
+// supabase/ai-search-cache.sql is applied.
+// ---------------------------------------------------------------------------
+
+// Per-IP cap on *paid* (cache-miss) parses per window. Generous for a human,
+// tight for a script. Cache hits don't count against it.
+const AI_RATE_MAX = 30;
+const AI_RATE_WINDOW_SECONDS = 3600;
+// Parses are effectively stable for a given query + prompt; 30 days lets a
+// prompt change eventually propagate without a manual table wipe.
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+export type AiSearchResult =
+  | { status: "ok"; params: AiSearchParams }
+  | { status: "empty" } // parsed, but no usable filters
+  | { status: "rate_limited" }
+  | { status: "unconfigured" } // no ANTHROPIC_API_KEY
+  | { status: "error" }; // parse/API failure
+
+// Service-role client for the server-side cache + rate-limit tables. Null
+// when env vars are missing (local dev without secrets) — callers then skip
+// caching and go straight to the parser.
+function getAdminClient(): SupabaseClient | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) return null;
+  return createClient(url, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+// Normalize so trivial variations ("  Slabby  5.10   Trad ") share a cache
+// entry.
+function normalizeQuery(q: string): string {
+  return q.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+async function readCachedParams(
+  admin: SupabaseClient,
+  norm: string,
+): Promise<AiSearchParams | null> {
+  try {
+    const cutoff = new Date(Date.now() - CACHE_TTL_MS).toISOString();
+    const { data, error } = await admin
+      .from("ai_query_cache")
+      .select("params")
+      .eq("query_norm", norm)
+      .gte("created_at", cutoff)
+      .maybeSingle();
+    if (error) throw error;
+    return (data?.params as AiSearchParams | undefined) ?? null;
+  } catch (err) {
+    console.error("[ai-search] cache read failed (treating as miss):", err);
+    return null;
+  }
+}
+
+function writeCachedParams(
+  admin: SupabaseClient,
+  norm: string,
+  params: AiSearchParams,
+): void {
+  // Fire-and-forget — never block the response on the cache write.
+  void admin
+    .from("ai_query_cache")
+    .upsert(
+      { query_norm: norm, params, created_at: new Date().toISOString() },
+      { onConflict: "query_norm" },
+    )
+    .then(({ error }) => {
+      if (error) console.error("[ai-search] cache write failed:", error);
+    });
+}
+
+async function withinRateLimit(
+  admin: SupabaseClient,
+  ip: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await admin.rpc("ai_rate_check", {
+      client_ip: ip,
+      max_calls: AI_RATE_MAX,
+      window_seconds: AI_RATE_WINDOW_SECONDS,
+    });
+    if (error) throw error;
+    // RPC returns boolean; fail open on an unexpected null.
+    return data !== false;
+  } catch (err) {
+    console.error("[ai-search] rate check failed (failing open):", err);
+    return true;
+  }
+}
+
+// Top-level entry the page calls: cache → rate-limit → parse → memoize.
+// Cache hits skip both the rate limit and the LLM, so common/repeat queries
+// are free and instant; only novel (paid) parses are rate-limited per IP.
+export async function runAiSearch(
+  query: string,
+  ip: string,
+): Promise<AiSearchResult> {
+  const q = query.trim();
+  if (!q) return { status: "error" };
+  if (!isAiSearchConfigured()) return { status: "unconfigured" };
+
+  const admin = getAdminClient();
+  const norm = normalizeQuery(q);
+
+  // 1) Cache hit → done (no rate-limit consumed, no LLM cost). Empty parses
+  //    are cached too, so junk queries can't be replayed for cost.
+  if (admin) {
+    const cached = await readCachedParams(admin, norm);
+    if (cached) {
+      return hasUsableFilters(cached)
+        ? { status: "ok", params: cached }
+        : { status: "empty" };
+    }
+  }
+
+  // 2) Cache miss → this will cost a Haiku call, so rate-limit per IP first.
+  if (admin && ip) {
+    if (!(await withinRateLimit(admin, ip))) return { status: "rate_limited" };
+  }
+
+  // 3) Parse, then memoize the result (usable or empty).
+  const params = await parseAiQuery(q);
+  if (!params) return { status: "error" };
+  if (admin) writeCachedParams(admin, norm, params);
+  return hasUsableFilters(params)
+    ? { status: "ok", params }
+    : { status: "empty" };
 }

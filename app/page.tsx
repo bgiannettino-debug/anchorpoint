@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { getClient } from "@/lib/apollo-client";
 import { AreaCard, type AreaCardData } from "@/components/area-card";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { NearMeButton } from "@/components/near-me-button";
 import { NearMap } from "@/components/near-map";
 import { LocationSync } from "@/components/location-sync";
@@ -31,12 +31,7 @@ import {
   parsePlaceQuery,
   resolveLocations,
 } from "@/lib/geocoding";
-import {
-  aiParamsToRouteHref,
-  hasUsableFilters,
-  isAiSearchConfigured,
-  parseAiQuery,
-} from "@/lib/ai-search";
+import { aiParamsToRouteHref, runAiSearch } from "@/lib/ai-search";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { gql } from "@apollo/client";
@@ -241,29 +236,34 @@ export default async function Home({
   const hasLocation = userLat !== null && userLng !== null;
   const shown = parseShown(shownRaw);
 
-  // Ask mode: hand the free-text query to the Haiku parser, then redirect
-  // into the Routes faceted path with the extracted params (which already
-  // does grade/discipline filtering, the "near" geocode, the map, etc.).
-  // The redirect drops `q`, so this can't loop. Graceful fallbacks render in
-  // place: "unconfigured" when there's no API key, "failed" when the parse
-  // returns nothing usable.
-  let askState: "idle" | "unconfigured" | "failed" = "idle";
+  // Ask mode: hand the free-text query to runAiSearch (cache → per-IP rate
+  // limit → Haiku parser), then redirect into the Routes faceted path with
+  // the extracted params (which already does grade/discipline filtering, the
+  // "near" geocode, the map, etc.). The redirect drops `q`, so this can't
+  // loop. Anything that doesn't redirect renders a fallback in place keyed
+  // off `askState`.
+  let askState: "idle" | "unconfigured" | "rate_limited" | "empty" | "error" =
+    "idle";
   if (mode === "ask" && query) {
-    if (!isAiSearchConfigured()) {
-      askState = "unconfigured";
-    } else {
-      const parsed = await parseAiQuery(query);
-      if (parsed && hasUsableFilters(parsed)) {
-        redirect(
-          aiParamsToRouteHref(
-            parsed,
-            hasLocation ? userLat : null,
-            hasLocation ? userLng : null,
-          ),
-        );
-      }
-      askState = "failed";
+    // Per-IP rate limiting needs the caller's IP. Behind Vercel this is the
+    // first x-forwarded-for hop; locally it may be absent (→ "unknown",
+    // which just shares one bucket in dev).
+    const hdrs = await headers();
+    const ip =
+      hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      hdrs.get("x-real-ip") ||
+      "unknown";
+    const result = await runAiSearch(query, ip);
+    if (result.status === "ok") {
+      redirect(
+        aiParamsToRouteHref(
+          result.params,
+          hasLocation ? userLat : null,
+          hasLocation ? userLng : null,
+        ),
+      );
     }
+    askState = result.status;
   }
   // Which tab reads as active. A location-anchored near view with *no
   // explicit mode* (a place-search redirect, the GPS "near me" button,
@@ -1045,7 +1045,7 @@ function AskFallback({
   userLat,
   userLng,
 }: {
-  state: "idle" | "unconfigured" | "failed";
+  state: "idle" | "unconfigured" | "rate_limited" | "empty" | "error";
   query: string;
   userLat: number | null;
   userLng: number | null;
@@ -1067,6 +1067,26 @@ function AskFallback({
             Routes filters
           </Link>{" "}
           to browse by discipline, grade, and city.
+        </p>
+      </>
+    );
+  }
+  if (state === "rate_limited") {
+    return (
+      <>
+        <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-2">
+          Too many searches — give it a bit
+        </h2>
+        <p className="text-stone-500 dark:text-stone-400">
+          You&apos;ve run a lot of Ask searches in a short window. Try again in
+          a little while, or use the{" "}
+          <Link
+            href={routesHref}
+            className="underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+          >
+            Routes filters
+          </Link>{" "}
+          — they have no limit.
         </p>
       </>
     );
