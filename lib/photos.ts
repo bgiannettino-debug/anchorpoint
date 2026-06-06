@@ -29,6 +29,12 @@ export type GalleryPhoto = {
   height: number;
   credit?: string | null;
   href?: string;
+  // Uploaded photos only: shown beneath the image when present.
+  caption?: string | null;
+  // Present only when the current viewer owns this photo — carries what
+  // the delete control needs. RLS is the real gate; this just decides
+  // whether to render the control.
+  deletable?: { photoId: string; storagePath: string };
 };
 
 export type OpenBetaMedia = {
@@ -50,6 +56,8 @@ export function openBetaPhoto(m: OpenBetaMedia): GalleryPhoto {
 }
 
 export type ClimbPhotoRow = {
+  id: string;
+  user_id: string;
   storage_path: string;
   width: number;
   height: number;
@@ -63,7 +71,12 @@ export function publicPhotoUrl(storagePath: string): string {
   return `${base}/storage/v1/object/public/${PHOTO_BUCKET}/${storagePath}`;
 }
 
-export function uploadedPhoto(row: ClimbPhotoRow): GalleryPhoto {
+// Map an uploaded row to a GalleryPhoto. `currentUserId` (the signed-in
+// viewer, or null) decides whether the delete control is offered.
+export function uploadedPhoto(
+  row: ClimbPhotoRow,
+  currentUserId: string | null,
+): GalleryPhoto {
   const url = publicPhotoUrl(row.storage_path);
   return {
     src: url,
@@ -73,25 +86,31 @@ export function uploadedPhoto(row: ClimbPhotoRow): GalleryPhoto {
     // Attribution per uploader needs a profiles table (none yet), so all
     // community uploads share one credit for now.
     credit: "Community",
+    caption: row.caption,
+    deletable:
+      currentUserId && row.user_id === currentUserId
+        ? { photoId: row.id, storagePath: row.storage_path }
+        : undefined,
   };
 }
 
-// Fetch a climb's user-uploaded photos as ready-to-render GalleryPhotos.
-// Non-fatal and degrades to [] — so the climb page works before
-// climb-photos.sql is applied (the table simply doesn't exist yet).
-export async function fetchClimbPhotos(
+// Fetch a climb's user-uploaded photo rows (newest first). Non-fatal and
+// degrades to [] — so the climb page works before climb-photos.sql is
+// applied (the table simply doesn't exist yet). The page maps these to
+// GalleryPhotos once it knows the viewer (for the delete control).
+export async function fetchClimbPhotoRows(
   supabase: SupabaseClient,
   climbUuid: string,
-): Promise<GalleryPhoto[]> {
+): Promise<ClimbPhotoRow[]> {
   try {
     const { data, error } = await supabase
       .from("climb_photos")
-      .select("storage_path, width, height, caption")
+      .select("id, user_id, storage_path, width, height, caption")
       .eq("climb_uuid", climbUuid)
       .order("created_at", { ascending: false })
       .limit(24);
     if (error) throw error;
-    return ((data ?? []) as ClimbPhotoRow[]).map(uploadedPhoto);
+    return (data ?? []) as ClimbPhotoRow[];
   } catch (err) {
     console.error("Climb photos fetch failed (non-fatal):", err);
     return [];

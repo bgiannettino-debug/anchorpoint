@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PhotoGrid } from "@/components/photo-gallery";
 import { AddPhoto } from "@/components/add-photo";
-import { fetchClimbPhotos, openBetaPhoto } from "@/lib/photos";
+import { fetchClimbPhotoRows, uploadedPhoto, openBetaPhoto } from "@/lib/photos";
 import { cookies } from "next/headers";
 import { gql } from "@apollo/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -63,22 +63,24 @@ async function fetchUserRating(
   }
 }
 
-// Cheap cookie-only check before paying for `auth.getUser()`'s network
-// round-trip. Signed-out users have no `sb-…-auth-token` cookie and
-// can skip the call entirely. Cookies can be stale/expired, so when
-// one exists we still validate via getUser() — only signed-out users
-// short-circuit.
-async function fetchSignedIn(supabase: Supabase): Promise<boolean> {
+// The signed-in viewer (id + signed-in flag). Cheap cookie-only
+// short-circuit before paying for `auth.getUser()`'s network round-trip:
+// signed-out users have no `sb-…-auth-token` cookie. Cookies can be
+// stale/expired, so when one exists we still validate via getUser(). The
+// id is used to decide which photos the viewer may delete.
+async function fetchViewer(
+  supabase: Supabase,
+): Promise<{ signedIn: boolean; userId: string | null }> {
   const jar = await cookies();
   const hasAuthCookie = jar
     .getAll()
     .some((c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token"));
-  if (!hasAuthCookie) return false;
+  if (!hasAuthCookie) return { signedIn: false, userId: null };
   try {
     const { data } = await supabase.auth.getUser();
-    return !!data.user;
+    return { signedIn: !!data.user, userId: data.user?.id ?? null };
   } catch {
-    return false;
+    return { signedIn: false, userId: null };
   }
 }
 
@@ -241,18 +243,20 @@ export default async function ClimbPage({
   // climb page render). OpenBeta detail + the three Supabase calls
   // all fire in parallel.
   const supabase = await createClient();
-  const [climb, rating, userRating, signedIn, uploadedPhotos] =
-    await Promise.all([
-      fetchClimb(id),
-      fetchRating(supabase, id),
-      fetchUserRating(supabase, id),
-      fetchSignedIn(supabase),
-      fetchClimbPhotos(supabase, id),
-    ]);
+  const [climb, rating, userRating, viewer, photoRows] = await Promise.all([
+    fetchClimb(id),
+    fetchRating(supabase, id),
+    fetchUserRating(supabase, id),
+    fetchViewer(supabase),
+    fetchClimbPhotoRows(supabase, id),
+  ]);
+  const { signedIn, userId } = viewer;
   const blended = rating ? blendRating(rating) : null;
   // User uploads first (fresh community content), then OpenBeta media.
+  // Ownership (for the delete control) is resolved here, once we know the
+  // viewer — keeps the photo + viewer fetches parallel.
   const photos = [
-    ...uploadedPhotos,
+    ...photoRows.map((r) => uploadedPhoto(r, userId)),
     ...(climb?.media ?? []).map(openBetaPhoto),
   ];
 

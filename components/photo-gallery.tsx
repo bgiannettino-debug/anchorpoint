@@ -1,5 +1,6 @@
 import Image from "next/image";
 import type { GalleryPhoto } from "@/lib/photos";
+import { DeletePhoto } from "@/components/delete-photo";
 
 /**
  * Photo galleries for climb + area pages. Originals are multi-MB, so
@@ -31,27 +32,36 @@ export function PhotoGrid({
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {shown.map((p) => (
-          <a
-            key={p.src}
-            href={p.href ?? p.src}
-            target="_blank"
-            rel="noreferrer"
-            className="relative block overflow-hidden rounded-lg border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900"
-          >
-            <Image
-              src={p.src}
-              alt={`Photo of ${label}`}
-              width={p.width}
-              height={p.height}
-              sizes="(max-width: 640px) 100vw, 50vw"
-              className="w-full h-auto"
-            />
-            {p.credit && (
-              <span className="absolute bottom-0 right-0 m-1 rounded bg-black/55 px-1.5 py-0.5 text-[11px] text-white/90">
-                📷 {p.credit}
-              </span>
+          <figure key={p.src}>
+            <div className="relative overflow-hidden rounded-lg border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900">
+              <a href={p.href ?? p.src} target="_blank" rel="noreferrer" className="block">
+                <Image
+                  src={p.src}
+                  alt={p.caption ? p.caption : `Photo of ${label}`}
+                  width={p.width}
+                  height={p.height}
+                  sizes="(max-width: 640px) 100vw, 50vw"
+                  className="w-full h-auto"
+                />
+                {p.credit && (
+                  <span className="absolute bottom-0 right-0 m-1 rounded bg-black/55 px-1.5 py-0.5 text-[11px] text-white/90">
+                    📷 {p.credit}
+                  </span>
+                )}
+              </a>
+              {p.deletable && (
+                <DeletePhoto
+                  photoId={p.deletable.photoId}
+                  storagePath={p.deletable.storagePath}
+                />
+              )}
+            </div>
+            {p.caption && (
+              <figcaption className="mt-1 text-sm text-stone-600 dark:text-stone-400">
+                {p.caption}
+              </figcaption>
             )}
-          </a>
+          </figure>
         ))}
       </div>
       {photos.length > MAX_PHOTOS && (
