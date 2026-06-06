@@ -102,7 +102,7 @@ export function ClimbResultsGrouped({ climbs }: { climbs: ClimbResult[] }) {
               </span>
             )}
             {g.ancestors.length > 0 && (
-              <p className="text-xs text-stone-500 dark:text-stone-400 truncate">
+              <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-2">
                 {g.ancestors.join(" › ")}
               </p>
             )}
