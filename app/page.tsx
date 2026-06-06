@@ -340,7 +340,9 @@ export default async function Home({
         <div
           role="tablist"
           aria-label="Search areas or routes"
-          className="flex gap-2 mb-3"
+          // Tighter gap on mobile so all four tabs fit one row; flex-wrap is
+          // a safety net for very narrow (≤320px) screens.
+          className="flex flex-wrap gap-1.5 sm:gap-2 mb-3"
         >
           {(["areas", "routes", "location", "ask"] as const).map((m) => {
             const active = activeTab === m;
@@ -360,8 +362,8 @@ export default async function Home({
                 aria-selected={active}
                 className={
                   active
-                    ? "px-4 py-1.5 rounded-full text-sm bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium"
-                    : "px-4 py-1.5 rounded-full text-sm border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+                    ? "px-3 sm:px-4 py-1.5 rounded-full text-sm bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-medium"
+                    : "px-3 sm:px-4 py-1.5 rounded-full text-sm border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
                 }
               >
                 {m === "areas"
