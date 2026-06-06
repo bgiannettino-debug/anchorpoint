@@ -1,7 +1,9 @@
 import { cache, Fragment, Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { PhotoGallery } from "@/components/photo-gallery";
+import { PhotoGrid } from "@/components/photo-gallery";
+import { AddPhoto } from "@/components/add-photo";
+import { fetchClimbPhotos, openBetaPhoto } from "@/lib/photos";
 import { cookies } from "next/headers";
 import { gql } from "@apollo/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -239,13 +241,20 @@ export default async function ClimbPage({
   // climb page render). OpenBeta detail + the three Supabase calls
   // all fire in parallel.
   const supabase = await createClient();
-  const [climb, rating, userRating, signedIn] = await Promise.all([
-    fetchClimb(id),
-    fetchRating(supabase, id),
-    fetchUserRating(supabase, id),
-    fetchSignedIn(supabase),
-  ]);
+  const [climb, rating, userRating, signedIn, uploadedPhotos] =
+    await Promise.all([
+      fetchClimb(id),
+      fetchRating(supabase, id),
+      fetchUserRating(supabase, id),
+      fetchSignedIn(supabase),
+      fetchClimbPhotos(supabase, id),
+    ]);
   const blended = rating ? blendRating(rating) : null;
+  // User uploads first (fresh community content), then OpenBeta media.
+  const photos = [
+    ...uploadedPhotos,
+    ...(climb?.media ?? []).map(openBetaPhoto),
+  ];
 
   if (!climb) {
     return (
@@ -397,7 +406,21 @@ export default async function ClimbPage({
           </div>
         )}
 
-        <PhotoGallery media={climb.media ?? []} label={climb.name} />
+        <section aria-label="Photos" className="mt-8">
+          <h2 className="text-2xl font-semibold text-stone-800 dark:text-stone-200 mb-4">
+            Photos
+          </h2>
+          <div className="mb-4">
+            <AddPhoto climbUuid={climb.uuid} signedIn={signedIn} />
+          </div>
+          {photos.length > 0 ? (
+            <PhotoGrid photos={photos} label={climb.name} />
+          ) : (
+            <p className="text-sm text-stone-500 dark:text-stone-400">
+              No photos yet{signedIn ? " — add the first one." : ""}.
+            </p>
+          )}
+        </section>
 
         <ContentSection title="Description" text={climb.content?.description} />
         <ContentSection title="Location" text={climb.content?.location} />

@@ -9,6 +9,7 @@ import { DirectionsButton } from "@/components/directions-button";
 import { MapToggle } from "@/components/map-toggle";
 import { PageNav } from "@/components/page-nav";
 import { PhotoGallery } from "@/components/photo-gallery";
+import { openBetaPhoto } from "@/lib/photos";
 import { MobileFilterDisclosure } from "@/components/mobile-filter-disclosure";
 import { SortDropdown } from "@/components/sort-dropdown";
 import { Stars } from "@/components/stars";
@@ -321,7 +322,10 @@ export default async function AreaPage({
 
             <AreaMap area={area} />
 
-            <PhotoGallery media={area.media ?? []} label={area.area_name} />
+            <PhotoGallery
+              photos={(area.media ?? []).map(openBetaPhoto)}
+              label={area.area_name}
+            />
 
             {area.children.length > 0 && (
               <section className="mb-10">
