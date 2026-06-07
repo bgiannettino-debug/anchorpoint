@@ -32,6 +32,7 @@ import {
   resolveLocations,
 } from "@/lib/geocoding";
 import { aiParamsToRouteHref, runAiSearch } from "@/lib/ai-search";
+import { SearchAutocomplete } from "@/components/search-autocomplete";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { gql } from "@apollo/client";
@@ -432,8 +433,8 @@ export default async function Home({
           {searchMode === "routes" && gradeRange.vMax && (
             <input type="hidden" name="vMax" value={gradeRange.vMax} />
           )}
-          <input
-            type="search"
+          <SearchAutocomplete
+            mode={searchMode}
             name="q"
             defaultValue={query}
             placeholder={
@@ -445,7 +446,7 @@ export default async function Home({
                     ? "e.g. moderate trad near Bishop"
                     : "Search areas (e.g. Smith Rock)"
             }
-            aria-label={
+            ariaLabel={
               searchMode === "routes"
                 ? "Search routes"
                 : searchMode === "location"
@@ -454,8 +455,6 @@ export default async function Home({
                     ? "Describe what you're looking for"
                     : "Search climbing areas"
             }
-            autoFocus
-            className="flex-1 min-w-0 px-4 py-3 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-700 dark:focus:ring-stone-300 focus:border-transparent"
           />
           <button
             type="submit"
