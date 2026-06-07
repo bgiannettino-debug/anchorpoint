@@ -222,6 +222,46 @@ export async function forwardGeocode(
 }
 
 /**
+ * Place suggestions for the Location typeahead. Like forwardGeocode but
+ * autocomplete=true and up to 5 results, each with a tidy label and
+ * coordinates. Returns [] when the token is missing or nothing matches.
+ */
+export async function suggestPlaces(
+  query: string,
+): Promise<{ label: string; lat: number; lng: number }[]> {
+  const token = process.env.MAPBOX_ACCESS_TOKEN;
+  const q = query.trim();
+  if (!token || q.length < 2) return [];
+
+  const url =
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/` +
+    `${encodeURIComponent(q)}.json?access_token=${encodeURIComponent(token)}` +
+    `&country=us&types=place,region,locality,district&limit=5&autocomplete=true`;
+
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      features?: {
+        center?: [number, number];
+        text?: string;
+        place_name?: string;
+      }[];
+    };
+    return (data.features ?? [])
+      .filter((f) => Array.isArray(f.center))
+      .map((f) => ({
+        label: f.place_name?.replace(/, United States$/, "") ?? f.text ?? q,
+        lng: f.center![0],
+        lat: f.center![1],
+      }));
+  } catch (err) {
+    console.error(`[geocoding] Mapbox suggest failed for "${q}":`, err);
+    return [];
+  }
+}
+
+/**
  * Resolve a batch of coordinates to display strings. Returns a Map
  * keyed by `locationKey(lat, lng)`. Coordinates without a result are
  * absent from the map; callers should fall back to showing coords.
