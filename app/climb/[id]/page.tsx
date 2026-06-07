@@ -318,8 +318,10 @@ export default async function ClimbPage({
           ancestors={climb.ancestors}
         />
 
-        <div className="flex items-baseline justify-between gap-4 mt-2">
-          <h1 className="text-4xl font-bold text-stone-900 dark:text-stone-100">
+        <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 sm:gap-4 mt-2">
+          {/* min-w-0 lets a long name wrap instead of pushing the
+              rating/grade off-screen; on mobile they stack below it. */}
+          <h1 className="text-4xl font-bold text-stone-900 dark:text-stone-100 min-w-0">
             {climb.name}
           </h1>
           <span className="flex items-baseline gap-3 shrink-0">
