@@ -316,6 +316,7 @@ export default async function ClimbPage({
         <Breadcrumbs
           pathTokens={climb.pathTokens}
           ancestors={climb.ancestors}
+          selfUuid={climb.uuid}
         />
 
         <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 sm:gap-4 mt-2">
@@ -466,19 +467,24 @@ function ContentSection({
 function Breadcrumbs({
   pathTokens,
   ancestors,
+  selfUuid,
 }: {
   pathTokens: string[];
   ancestors: string[];
+  selfUuid?: string;
 }) {
-  // For a climb, the trailing entries in pathTokens/ancestors are the
-  // climb itself — strip them so the breadcrumb only shows parent areas.
-  // We drop any entries whose corresponding ancestor doesn't look like a
-  // resolvable area uuid (the climb's own id sits at the end).
+  // pathTokens/ancestors are the climb's *area* ancestry, ending at its
+  // immediate parent area (e.g. … › Brogan Spire › North Face) — the climb
+  // itself is normally NOT included. Only drop a trailing entry when it
+  // actually is the climb (matches selfUuid); otherwise keep all, so the
+  // immediate parent area isn't lost.
   const areaCount = Math.min(pathTokens.length, ancestors.length);
-  // The climb's own name typically appears as the last pathToken; the
-  // corresponding ancestor is the climb's id. Drop the last entry.
-  const tokens = pathTokens.slice(0, Math.max(0, areaCount - 1));
-  const ids = ancestors.slice(0, Math.max(0, areaCount - 1));
+  let tokens = pathTokens.slice(0, areaCount);
+  let ids = ancestors.slice(0, areaCount);
+  if (ids.length > 0 && selfUuid && ids[ids.length - 1] === selfUuid) {
+    tokens = tokens.slice(0, -1);
+    ids = ids.slice(0, -1);
+  }
   if (tokens.length === 0) return null;
   return (
     <nav
