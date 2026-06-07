@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { uploadClimbPhoto } from "@/lib/photo-upload";
@@ -28,6 +28,7 @@ export function AddPhoto({ climbUuid, signedIn }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const fileInput = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
 
   if (!signedIn) {
     return (
@@ -49,6 +50,12 @@ export function AddPhoto({ climbUuid, signedIn }: Props) {
     setConsent(false);
     setError(null);
     if (fileInput.current) fileInput.current.value = "";
+    if (cameraInput.current) cameraInput.current.value = "";
+  }
+
+  function onPick(e: ChangeEvent<HTMLInputElement>) {
+    setFile(e.target.files?.[0] ?? null);
+    setError(null);
   }
 
   function submit() {
@@ -81,15 +88,44 @@ export function AddPhoto({ climbUuid, signedIn }: Props) {
 
   return (
     <div className="rounded-lg border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 p-4 space-y-3">
+      {/* Two source buttons. The camera input's `capture` attribute opens
+          the device camera directly on mobile; on desktop it's ignored and
+          falls back to a file dialog. Both feed the same onPick handler. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => cameraInput.current?.click()}
+          className="text-sm px-3 py-1.5 rounded-full border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+        >
+          📷 Take a photo
+        </button>
+        <button
+          type="button"
+          onClick={() => fileInput.current?.click()}
+          className="text-sm px-3 py-1.5 rounded-full border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:border-stone-500 dark:hover:border-stone-500 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+        >
+          Choose a file
+        </button>
+        {file && (
+          <span className="text-sm text-stone-600 dark:text-stone-300 truncate max-w-[14rem]">
+            {file.name}
+          </span>
+        )}
+      </div>
+      <input
+        ref={cameraInput}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={onPick}
+        className="hidden"
+      />
       <input
         ref={fileInput}
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/heic"
-        onChange={(e) => {
-          setFile(e.target.files?.[0] ?? null);
-          setError(null);
-        }}
-        className="block w-full text-sm text-stone-700 dark:text-stone-300 file:mr-3 file:rounded-full file:border-0 file:bg-stone-900 dark:file:bg-stone-100 file:px-4 file:py-1.5 file:text-white dark:file:text-stone-900 file:text-sm file:font-medium"
+        accept="image/*"
+        onChange={onPick}
+        className="hidden"
       />
       <input
         type="text"
