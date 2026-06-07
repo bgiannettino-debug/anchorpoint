@@ -407,6 +407,7 @@ export default async function ClimbPage({
                 },
               ]}
               frameRadiusMiles={0.125}
+              defaultOpen
             />
           </div>
         )}
