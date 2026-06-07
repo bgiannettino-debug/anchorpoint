@@ -10,6 +10,8 @@ type Props = {
   fitMode?: "radius" | "all";
   frameRadiusMiles?: number;
   label?: string;
+  /** Render the map open on first load (with "Hide map" as the toggle). */
+  defaultOpen?: boolean;
 };
 
 /**
@@ -26,8 +28,9 @@ export function MapToggle({
   fitMode,
   frameRadiusMiles,
   label = "Show map",
+  defaultOpen = false,
 }: Props) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
 
   if (!open) {
     return (
