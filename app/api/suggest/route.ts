@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { suggestPlaces } from "@/lib/geocoding";
+import { blendRating } from "@/lib/ratings";
 
 // Typeahead suggestions for the home search box. One endpoint, three
 // sources keyed by `mode`: routes → Supabase search_climbs, areas →
@@ -26,6 +27,10 @@ type ClimbRow = {
   vscale?: string | null;
   area_name?: string | null;
   path_tokens?: string[] | null;
+  curated_stars?: number | null;
+  curated_votes?: number | null;
+  ugc_stars?: number | null;
+  ugc_votes?: number | null;
 };
 
 const AREA_QUERY = `
@@ -52,17 +57,24 @@ export async function GET(request: Request) {
         max_results: LIMIT,
       });
       if (error) throw error;
-      const suggestions: Suggestion[] = ((data ?? []) as ClimbRow[]).map((c) => ({
-        id: c.uuid,
-        label: c.name,
-        sublabel: [
-          c.yds ?? c.vscale ?? null,
-          c.area_name ?? c.path_tokens?.[c.path_tokens.length - 1] ?? null,
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        href: `/climb/${c.uuid}`,
-      }));
+      const suggestions: Suggestion[] = ((data ?? []) as ClimbRow[]).map((c) => {
+        const { stars } = blendRating(c);
+        const location =
+          c.area_name ?? c.path_tokens?.[c.path_tokens.length - 1] ?? null;
+        return {
+          id: c.uuid,
+          label: c.name,
+          // grade · ★rating · location (each part dropped when absent)
+          sublabel: [
+            c.yds ?? c.vscale ?? null,
+            stars != null ? `★ ${stars.toFixed(1)}` : null,
+            location,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          href: `/climb/${c.uuid}`,
+        };
+      });
       return NextResponse.json({ suggestions });
     }
 
