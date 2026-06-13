@@ -29,7 +29,15 @@ import {
 import { GradeRangeFilter } from "@/components/grade-range-filter";
 import { locationKey, resolveLocations } from "@/lib/geocoding";
 import { blendRating, type RatingSource } from "@/lib/ratings";
-import { createClient } from "@/lib/supabase/server";
+import { publicClient } from "@/lib/supabase/public";
+
+// ISR: area pages are public OpenBeta/Supabase content — cache and
+// revalidate hourly rather than rendering per request. force-static makes
+// the (otherwise-uncached) OpenBeta / Supabase fetches cacheable so the
+// route is statically rendered; unknown areas render on first hit, then
+// cache.
+export const dynamic = "force-static";
+export const revalidate = 3600;
 
 type Climb = {
   id: string;
@@ -416,7 +424,7 @@ async function fetchAreaRatings(
   const out = new Map<string, RatingSource>();
   if (climbUuids.length === 0) return out;
   try {
-    const supabase = await createClient();
+    const supabase = publicClient();
     const { data, error } = await supabase
       .from("climbs_index")
       .select("uuid, curated_stars, curated_votes, ugc_stars, ugc_votes")

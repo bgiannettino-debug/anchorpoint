@@ -54,10 +54,11 @@ export function PhotoGrid({
                   </span>
                 )}
               </a>
-              {p.deletable && (
+              {p.owned && (
                 <DeletePhoto
-                  photoId={p.deletable.photoId}
-                  storagePath={p.deletable.storagePath}
+                  ownerId={p.owned.ownerId}
+                  photoId={p.owned.photoId}
+                  storagePath={p.owned.storagePath}
                 />
               )}
             </div>

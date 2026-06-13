@@ -5,7 +5,6 @@ import { PhotoGrid } from "@/components/photo-gallery";
 import { AddPhoto } from "@/components/add-photo";
 import { fetchClimbPhotoRows, uploadedPhoto, openBetaPhoto } from "@/lib/photos";
 import { ExpandableText } from "@/components/expandable-text";
-import { cookies } from "next/headers";
 import { gql } from "@apollo/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getClient } from "@/lib/apollo-client";
@@ -20,7 +19,16 @@ import { WeatherForecast } from "@/components/weather-forecast";
 import { WeatherSkeleton } from "@/components/weather-skeleton";
 import { coordsOf } from "@/lib/geo";
 import { blendRating, type RatingSource } from "@/lib/ratings";
-import { createClient } from "@/lib/supabase/server";
+import { publicClient } from "@/lib/supabase/public";
+
+// ISR: the climb page is public OpenBeta/Supabase content, so cache it and
+// revalidate hourly instead of rendering per request. Per-user bits
+// (rating, photo ownership, auth) load client-side, so nothing here is
+// request-specific. force-static makes the (otherwise-uncached) OpenBeta /
+// Supabase fetches cacheable so the route is statically rendered; unknown
+// climbs render on first hit, then cache.
+export const dynamic = "force-static";
+export const revalidate = 3600;
 
 type ClimbRatingRow = RatingSource;
 type Supabase = SupabaseClient;
@@ -40,48 +48,6 @@ async function fetchRating(
   } catch (err) {
     console.error("Climb rating fetch failed (non-fatal):", err);
     return null;
-  }
-}
-
-// The signed-in user's own rating for this climb (1–5), or null if
-// they haven't rated it (or aren't signed in). RLS limits the row to
-// the caller's own, so we don't need to filter by user_id here.
-async function fetchUserRating(
-  supabase: Supabase,
-  uuid: string,
-): Promise<number | null> {
-  try {
-    const { data, error } = await supabase
-      .from("climb_ratings")
-      .select("stars")
-      .eq("climb_uuid", uuid)
-      .maybeSingle();
-    if (error) throw error;
-    return data?.stars ?? null;
-  } catch (err) {
-    console.error("User rating fetch failed (non-fatal):", err);
-    return null;
-  }
-}
-
-// The signed-in viewer (id + signed-in flag). Cheap cookie-only
-// short-circuit before paying for `auth.getUser()`'s network round-trip:
-// signed-out users have no `sb-…-auth-token` cookie. Cookies can be
-// stale/expired, so when one exists we still validate via getUser(). The
-// id is used to decide which photos the viewer may delete.
-async function fetchViewer(
-  supabase: Supabase,
-): Promise<{ signedIn: boolean; userId: string | null }> {
-  const jar = await cookies();
-  const hasAuthCookie = jar
-    .getAll()
-    .some((c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token"));
-  if (!hasAuthCookie) return { signedIn: false, userId: null };
-  try {
-    const { data } = await supabase.auth.getUser();
-    return { signedIn: !!data.user, userId: data.user?.id ?? null };
-  } catch {
-    return { signedIn: false, userId: null };
   }
 }
 
@@ -238,26 +204,19 @@ export default async function ClimbPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  // Build one Supabase client and share it across the three
-  // Supabase-backed helpers (previously each constructed its own and
-  // called cookies() independently — three extra cookie reads per
-  // climb page render). OpenBeta detail + the three Supabase calls
-  // all fire in parallel.
-  const supabase = await createClient();
-  const [climb, rating, userRating, viewer, photoRows] = await Promise.all([
+  // Cookieless client → the page stays cacheable (ISR). Only public data is
+  // read here; per-user bits (rating, photo ownership, auth) load
+  // client-side. OpenBeta detail + the Supabase reads fire in parallel.
+  const supabase = publicClient();
+  const [climb, rating, photoRows] = await Promise.all([
     fetchClimb(id),
     fetchRating(supabase, id),
-    fetchUserRating(supabase, id),
-    fetchViewer(supabase),
     fetchClimbPhotoRows(supabase, id),
   ]);
-  const { signedIn, userId } = viewer;
   const blended = rating ? blendRating(rating) : null;
   // User uploads first (fresh community content), then OpenBeta media.
-  // Ownership (for the delete control) is resolved here, once we know the
-  // viewer — keeps the photo + viewer fetches parallel.
   const photos = [
-    ...photoRows.map((r) => uploadedPhoto(r, userId)),
+    ...photoRows.map(uploadedPhoto),
     ...(climb?.media ?? []).map(openBetaPhoto),
   ];
 
@@ -372,11 +331,7 @@ export default async function ClimbPage({
           )}
         </div>
         <div className="mt-3">
-          <RateClimb
-            climbUuid={climb.uuid}
-            initial={userRating}
-            signedIn={signedIn}
-          />
+          <RateClimb climbUuid={climb.uuid} />
         </div>
         <div className="mt-3">
           <TickForm
@@ -420,13 +375,13 @@ export default async function ClimbPage({
             Photos
           </h2>
           <div className="mb-4">
-            <AddPhoto climbUuid={climb.uuid} signedIn={signedIn} />
+            <AddPhoto climbUuid={climb.uuid} />
           </div>
           {photos.length > 0 ? (
             <PhotoGrid photos={photos} label={climb.name} />
           ) : (
             <p className="text-sm text-stone-500 dark:text-stone-400">
-              No photos yet{signedIn ? " — add the first one." : ""}.
+              No photos yet.
             </p>
           )}
         </section>

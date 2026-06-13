@@ -1,14 +1,24 @@
 "use client";
 
-import { useRef, useState, useTransition, type ChangeEvent } from "react";
+import {
+  useRef,
+  useState,
+  useTransition,
+  useSyncExternalStore,
+  type ChangeEvent,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { uploadClimbPhoto } from "@/lib/photo-upload";
 import { PHOTO_LICENSE, MAX_CAPTION } from "@/lib/photos";
+import {
+  getAuthServerSnapshot,
+  getAuthSnapshot,
+  subscribeAuth,
+} from "@/lib/auth";
 
 type Props = {
   climbUuid: string;
-  signedIn: boolean;
 };
 
 /**
@@ -19,7 +29,12 @@ type Props = {
  * router.refresh() so the server re-fetches and the new photo appears in
  * the gallery.
  */
-export function AddPhoto({ climbUuid, signedIn }: Props) {
+export function AddPhoto({ climbUuid }: Props) {
+  const auth = useSyncExternalStore(
+    subscribeAuth,
+    getAuthSnapshot,
+    getAuthServerSnapshot,
+  );
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -30,7 +45,11 @@ export function AddPhoto({ climbUuid, signedIn }: Props) {
   const fileInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
 
-  if (!signedIn) {
+  if (auth.status === "loading") {
+    return null;
+  }
+
+  if (auth.status === "signed-out") {
     return (
       <p className="text-sm text-stone-600 dark:text-stone-300">
         <Link

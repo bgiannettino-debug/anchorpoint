@@ -1,14 +1,54 @@
+"use client";
+
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import {
+  getAuthServerSnapshot,
+  getAuthSnapshot,
+  subscribeAuth,
+} from "@/lib/auth";
+import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/app/auth/actions";
 
-export async function AuthIndicator() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+/**
+ * Header auth control. Client-rendered (reads the shared auth store) so the
+ * root layout doesn't call cookies() — that would force every page to
+ * render dynamically and defeat ISR caching on the catalog pages. The
+ * signed-in state appears after hydration, like the other auth-gated
+ * controls (bookmark/tick).
+ */
+export function AuthIndicator() {
+  const auth = useSyncExternalStore(
+    subscribeAuth,
+    getAuthSnapshot,
+    getAuthServerSnapshot,
+  );
+  const [displayName, setDisplayName] = useState<string | null>(null);
 
-  if (!user) {
+  useEffect(() => {
+    // Only fetch when signed in. (displayName isn't rendered while
+    // signed-out/loading, so no synchronous reset is needed here.)
+    if (auth.status !== "signed-in") return;
+    let active = true;
+    const supabase = createClient();
+    void supabase
+      .from("profiles")
+      .select("display_name")
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active) setDisplayName(data?.display_name ?? null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [auth.status]);
+
+  // Reserve the row height while the store resolves to avoid a layout jump.
+  if (auth.status === "loading") {
+    return <span className="ml-auto text-sm opacity-0" aria-hidden="true" />;
+  }
+
+  if (auth.status === "signed-out") {
     return (
       <Link
         href="/login"
@@ -19,26 +59,13 @@ export async function AuthIndicator() {
     );
   }
 
-  // Prefer the display name; fall back to email. Non-fatal before
-  // profiles.sql is applied.
-  let displayName: string | null = null;
-  try {
-    const { data } = await supabase
-      .from("profiles")
-      .select("display_name")
-      .maybeSingle();
-    displayName = data?.display_name ?? null;
-  } catch {
-    // profiles table not present yet — fall back to email.
-  }
-
   return (
     <>
       <Link
         href="/account"
         className="hidden sm:inline text-sm text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 truncate max-w-[24ch]"
       >
-        {displayName || user.email}
+        {displayName || auth.email}
       </Link>
       <div className="ml-auto flex items-center gap-3 text-sm">
         <Link

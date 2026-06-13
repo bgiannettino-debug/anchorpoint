@@ -31,10 +31,10 @@ export type GalleryPhoto = {
   href?: string;
   // Uploaded photos only: shown beneath the image when present.
   caption?: string | null;
-  // Present only when the current viewer owns this photo — carries what
-  // the delete control needs. RLS is the real gate; this just decides
-  // whether to render the control.
-  deletable?: { photoId: string; storagePath: string };
+  // Uploaded photos only: who owns it + what the delete control needs.
+  // The page is cached, so ownership is decided client-side (compare
+  // ownerId to the signed-in user); RLS is the real gate.
+  owned?: { ownerId: string; photoId: string; storagePath: string };
 };
 
 export type OpenBetaMedia = {
@@ -73,12 +73,10 @@ export function publicPhotoUrl(storagePath: string): string {
   return `${base}/storage/v1/object/public/${PHOTO_BUCKET}/${storagePath}`;
 }
 
-// Map an uploaded row to a GalleryPhoto. `currentUserId` (the signed-in
-// viewer, or null) decides whether the delete control is offered.
-export function uploadedPhoto(
-  row: ClimbPhotoRow,
-  currentUserId: string | null,
-): GalleryPhoto {
+// Map an uploaded row to a GalleryPhoto. Ownership (for the delete control)
+// is resolved client-side from `owned.ownerId`, so this stays pure and the
+// page can be cached.
+export function uploadedPhoto(row: ClimbPhotoRow): GalleryPhoto {
   const url = publicPhotoUrl(row.storage_path);
   return {
     src: url,
@@ -89,10 +87,11 @@ export function uploadedPhoto(
     // generic credit.
     credit: row.display_name?.trim() || "Community",
     caption: row.caption,
-    deletable:
-      currentUserId && row.user_id === currentUserId
-        ? { photoId: row.id, storagePath: row.storage_path }
-        : undefined,
+    owned: {
+      ownerId: row.user_id,
+      photoId: row.id,
+      storagePath: row.storage_path,
+    },
   };
 }
 
