@@ -41,6 +41,11 @@ export function PhotoGrid({
                   width={p.width}
                   height={p.height}
                   sizes="(max-width: 640px) 100vw, 50vw"
+                  // Serve straight from the source CDN (OpenBeta / Supabase)
+                  // rather than proxying every thumbnail through Vercel's
+                  // image optimizer — that proxying drove most of our Image
+                  // Optimization usage and Fast Origin Transfer.
+                  unoptimized
                   className="w-full h-auto"
                 />
                 {p.credit && (
