@@ -1,33 +1,61 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import {
+  getAuthServerSnapshot,
+  getAuthSnapshot,
+  subscribeAuth,
+} from "@/lib/auth";
 
 type Props = {
   climbUuid: string;
-  /** This user's existing rating (1–5), or null if unrated / not signed in. */
-  initial: number | null;
-  signedIn: boolean;
 };
 
 /**
- * Five-star rating input for the climb page. Writes to the
- * climb_ratings table; a Postgres trigger recomputes the aggregate
- * (ugc_stars, ugc_votes) on climbs_index so the displayed badge
- * everywhere else updates on the next page load.
+ * Five-star rating input for the climb page. Writes to the climb_ratings
+ * table; a Postgres trigger recomputes the aggregate (ugc_stars, ugc_votes)
+ * on climbs_index so the displayed badge updates on the next page rebuild.
  *
- * Optimistic: the highlighted state flips immediately on click, and
- * reverts if the upsert fails. Signed-out users see a "Sign in to
- * rate" link instead — the auth gate is the RLS policy on the table,
- * not this component, so a missed gate here can't cause a write.
+ * Reads auth + the user's existing rating CLIENT-side so the climb page can
+ * be statically cached (ISR) — nothing per-user is fetched on the server.
+ * Optimistic: the highlighted state flips immediately on click and reverts
+ * if the upsert fails. The real auth gate is the RLS policy on the table.
  */
-export function RateClimb({ climbUuid, initial, signedIn }: Props) {
-  const [stars, setStars] = useState<number | null>(initial);
+export function RateClimb({ climbUuid }: Props) {
+  const auth = useSyncExternalStore(
+    subscribeAuth,
+    getAuthSnapshot,
+    getAuthServerSnapshot,
+  );
+  const [stars, setStars] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
   const supabase = createClient();
 
-  if (!signedIn) {
+  // Load this user's existing rating once signed in. (Stars aren't
+  // rendered while signed-out/loading, so no synchronous reset is needed.)
+  useEffect(() => {
+    if (auth.status !== "signed-in") return;
+    let active = true;
+    void supabase
+      .from("climb_ratings")
+      .select("stars")
+      .eq("climb_uuid", climbUuid)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active) setStars(data?.stars ?? null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [auth.status, climbUuid, supabase]);
+
+  if (auth.status === "loading") {
+    return <div className="h-7" aria-hidden="true" />;
+  }
+
+  if (auth.status === "signed-out") {
     return (
       <div className="text-sm text-stone-600 dark:text-stone-300">
         <Link
@@ -45,8 +73,6 @@ export function RateClimb({ climbUuid, initial, signedIn }: Props) {
     const prev = stars;
     setStars(n);
     startTransition(async () => {
-      // user_id defaults to auth.uid() in SQL; RLS enforces it. We send
-      // only what we own so a stale client can't fake a different user.
       const { error } = await supabase.from("climb_ratings").upsert(
         {
           climb_uuid: climbUuid,
@@ -66,8 +92,6 @@ export function RateClimb({ climbUuid, initial, signedIn }: Props) {
     const prev = stars;
     setStars(null);
     startTransition(async () => {
-      // RLS limits the delete to this user's own row, so the climb_uuid
-      // filter is the only one we need to write.
       const { error } = await supabase
         .from("climb_ratings")
         .delete()
@@ -84,7 +108,11 @@ export function RateClimb({ climbUuid, initial, signedIn }: Props) {
       <span className="text-sm text-stone-600 dark:text-stone-300">
         Your rating:
       </span>
-      <div className="flex items-center" role="radiogroup" aria-label="Rate this climb">
+      <div
+        className="flex items-center"
+        role="radiogroup"
+        aria-label="Rate this climb"
+      >
         {[1, 2, 3, 4, 5].map((n) => {
           const active = stars != null && n <= stars;
           return (

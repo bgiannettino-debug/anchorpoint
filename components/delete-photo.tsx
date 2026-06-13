@@ -1,11 +1,17 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { PHOTO_BUCKET } from "@/lib/photos";
+import {
+  getAuthServerSnapshot,
+  getAuthSnapshot,
+  subscribeAuth,
+} from "@/lib/auth";
 
 type Props = {
+  ownerId: string;
   photoId: string;
   storagePath: string;
 };
@@ -17,10 +23,19 @@ type Props = {
  * real gate — the control only shows for owned photos as a courtesy), then
  * refreshes so the gallery drops it.
  */
-export function DeletePhoto({ photoId, storagePath }: Props) {
+export function DeletePhoto({ ownerId, photoId, storagePath }: Props) {
+  const auth = useSyncExternalStore(
+    subscribeAuth,
+    getAuthSnapshot,
+    getAuthServerSnapshot,
+  );
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  // Only the owner sees the control; RLS enforces the actual permission.
+  const isOwner = auth.status === "signed-in" && auth.userId === ownerId;
+  if (!isOwner) return null;
 
   function remove() {
     startTransition(async () => {
