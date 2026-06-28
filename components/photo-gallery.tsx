@@ -41,11 +41,12 @@ export function PhotoGrid({
                   width={p.width}
                   height={p.height}
                   sizes="(max-width: 640px) 100vw, 50vw"
-                  // Serve straight from the source CDN (OpenBeta / Supabase)
-                  // rather than proxying every thumbnail through Vercel's
-                  // image optimizer — that proxying drove most of our Image
-                  // Optimization usage and Fast Origin Transfer.
-                  unoptimized
+                  // Optimize via next/image. OpenBeta originals are ~4 MB and
+                  // its CDN doesn't resize, so serving them directly (the
+                  // brief `unoptimized` experiment) made galleries download
+                  // tens of MB. The optimizer turns them into small cached
+                  // thumbnails; image-optimization cost was never the source
+                  // of the overage (that was dynamic renders, now ISR-cached).
                   className="w-full h-auto"
                 />
                 {p.credit && (
