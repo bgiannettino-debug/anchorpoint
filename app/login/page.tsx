@@ -52,8 +52,9 @@ export default function LoginPage() {
       setError(verifyError.message);
       return;
     }
-    // Cookies are set by the SSR client; navigate home and refresh so
-    // the server-rendered AuthIndicator picks up the new session.
+    // verifyOtp set the session on the shared browser client, which fires
+    // onAuthStateChange → the auth store (and so the header etc.) updates
+    // without a reload. Navigate home; refresh re-fetches any RSC.
     router.push("/");
     router.refresh();
   }
