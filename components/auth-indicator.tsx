@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import {
   getAuthServerSnapshot,
   getAuthSnapshot,
   subscribeAuth,
 } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/client";
-import { signOut } from "@/app/auth/actions";
 
 /**
  * Header auth control. Client-rendered (reads the shared auth store) so the
@@ -23,7 +23,16 @@ export function AuthIndicator() {
     getAuthSnapshot,
     getAuthServerSnapshot,
   );
+  const router = useRouter();
   const [displayName, setDisplayName] = useState<string | null>(null);
+
+  // Sign out on the browser client so it fires onAuthStateChange and the
+  // shared auth store updates immediately (a server action would clear the
+  // cookie but leave the client store stale until a reload).
+  async function handleSignOut() {
+    await createClient().auth.signOut();
+    router.push("/");
+  }
 
   useEffect(() => {
     // Only fetch when signed in. (displayName isn't rendered while
@@ -80,14 +89,13 @@ export function AuthIndicator() {
         >
           Ticks
         </Link>
-        <form action={signOut}>
-          <button
-            type="submit"
-            className="text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
-          >
-            Sign out
-          </button>
-        </form>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="text-stone-600 dark:text-stone-300 underline underline-offset-4 hover:text-stone-900 dark:hover:text-stone-100"
+        >
+          Sign out
+        </button>
       </div>
     </>
   );
