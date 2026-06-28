@@ -1,0 +1,42 @@
+name: Supabase keep-alive
+
+# Free-tier Supabase projects auto-pause after ~7 days of inactivity, which
+# takes the whole backend offline (sign-in, ratings, photos, bookmarks,
+# ticks, and the typeahead's route/area suggestions). A small daily query
+# keeps the project active. If the query fails (e.g. the project is already
+# paused or down), the run fails so you get a notification. Remove this once
+# the app has steady real traffic.
+#
+# Requires two repo secrets (Settings → Secrets and variables → Actions):
+#   SUPABASE_URL       = your NEXT_PUBLIC_SUPABASE_URL
+#   SUPABASE_ANON_KEY  = your NEXT_PUBLIC_SUPABASE_ANON_KEY (public; RLS-gated)
+
+on:
+  schedule:
+    - cron: "17 8 * * *" # daily ~08:17 UTC (off the top of the hour)
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Supabase to keep the project from auto-pausing
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::Missing SUPABASE_URL or SUPABASE_ANON_KEY repo secret"
+            exit 1
+          fi
+          # A real table read (not just the gateway) counts as DB activity.
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 \
+            "$SUPABASE_URL/rest/v1/climbs_index?select=uuid&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          echo "Supabase responded HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::Keep-alive query failed (HTTP $code) — project may be paused or down"
+            exit 1
+          fi
+          echo "Keep-alive OK"
