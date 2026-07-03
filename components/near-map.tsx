@@ -59,11 +59,42 @@ export function NearMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapboxGL.Map | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [inView, setInView] = useState(false);
 
   const hasUserCoords = userLat !== null && userLng !== null;
 
+  // Defer the ~1.7 MB mapbox-gl download + WebGL init + tile fetches until
+  // the map is near the viewport. On climb/home pages the map sits below
+  // the fold, so this keeps all that work off the initial-load critical
+  // path — the page paints and becomes interactive first.
+  useEffect(() => {
+    if (inView) return;
+    const el = containerRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      // No observer support — load on the next frame (not synchronously,
+      // which would cascade a render) so the map still appears.
+      const id = requestAnimationFrame(() => setInView(true));
+      return () => cancelAnimationFrame(id);
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setInView(true);
+          io.disconnect();
+        }
+      },
+      // Start loading a little before it scrolls in, so there's no
+      // visible gap by the time the map area reaches the viewport.
+      { rootMargin: "300px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [inView]);
+
   useEffect(() => {
     if (!containerRef.current) return;
+    if (!inView) return;
     if (!TOKEN) {
       console.warn(
         "[near-map] NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN is not set in the build. Map won't render. Add the env var to Vercel and redeploy.",
@@ -217,7 +248,7 @@ export function NearMap({
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [userLat, userLng, crags, hasUserCoords, frameRadiusMiles, fitMode]);
+  }, [userLat, userLng, crags, hasUserCoords, frameRadiusMiles, fitMode, inView]);
 
   useEffect(() => {
     const map = mapRef.current;
